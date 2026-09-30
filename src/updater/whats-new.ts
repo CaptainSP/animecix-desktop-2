@@ -1,19 +1,21 @@
 /**
- * What's-new announcement — a self-contained box injected into animecix.tv that
- * greets users who UPDATED the app (never fresh installs) with a summary of the
- * latest additions (currently: "Toplu İndir" / batch downloads).
+ * What's-new announcement — a box injected into animecix.tv that greets users
+ * who UPDATED the app (never fresh installs) with what the new version brings.
  *
- * Version gating: the app version is stored in the settings table after the box
- * is shown (or on first install), so the announcement appears exactly once per
- * version bump. Fresh installs are detected by the absence of the SQLite file
- * BEFORE StorageService creates it.
+ * The copy used to be hardcoded in this file, which meant changing a single
+ * word required a new build, and the box kept advertising whatever the last
+ * release added regardless of which version the user had just moved to. The
+ * card's design is unchanged; only its content now comes from
+ * /secure/windows-release-notes?version=<app version>, authored in the admin
+ * panel (animecix-angular → /admin/windows-release-notes).
  *
- * Injected as a self-contained script run via webContents.executeJavaScript on
- * did-finish-load. The box lives in the page DOM (fixed position, top-right)
- * with CSS slide-in / slide-out animations. Injection is the right tool here
- * because the announcement is about the app's own version, which the website
- * knows nothing about — the batch download picker it advertises, by contrast,
- * lives in animecix-angular.
+ * Version gating: the app version is stored in the settings table once the
+ * announcement has been resolved, so the box appears at most once per version
+ * bump. Fresh installs are detected by the absence of the SQLite file BEFORE
+ * StorageService creates it.
+ *
+ * Injection is still the right tool: the announcement is about the app's own
+ * version, which the website knows nothing about.
  */
 
 import { app, type BrowserWindow } from 'electron';
@@ -22,7 +24,10 @@ import type { StorageService } from '../storage/StorageService.js';
 
 const ANNOUNCEMENT_VERSION_KEY = 'last_announced_version';
 
-/** True when the announcement must be shown for this launch. */
+/** What the injected script reports back about this launch. */
+export type AnnounceOutcome = 'shown' | 'none' | 'error';
+
+/** True when the announcement must be resolved for this launch. */
 export function shouldAnnounce(
   isFreshInstall: boolean,
   lastAnnouncedVersion: string | null,
@@ -32,14 +37,46 @@ export function shouldAnnounce(
   return lastAnnouncedVersion !== currentVersion;
 }
 
+/**
+ * Whether to mark this version as announced.
+ *
+ * A version with no note authored still counts as handled — there is nothing
+ * to show and re-asking every launch would be pointless. A failed lookup does
+ * NOT: the user was most likely offline, and burning the version there would
+ * silently swallow the announcement for good.
+ */
+export function shouldRecordVersion(outcome: AnnounceOutcome): boolean {
+  return outcome !== 'error';
+}
+
 // CRITICAL: this string is passed to webContents.executeJavaScript. It runs in
 // the page's main world. It must be fully self-contained (no imports) and must
 // NOT contain backticks or ${...} sequences — the outer TS template literal
-// would interpolate them.
+// would interpolate them. The app version is prepended as a separate statement
+// by buildWhatsNewScript rather than interpolated in here.
 export const WHATS_NEW_SCRIPT = `
-(function () {
-  if (window.__animecixWhatsNewShown) return;
+(async function () {
+  if (window.__animecixWhatsNewShown) return 'none';
   window.__animecixWhatsNewShown = true;
+
+  var version = window.__animecixAppVersion;
+  if (!version) return 'error';
+
+  // Same-origin, so this works against the dev proxy and production alike.
+  var note;
+  try {
+    var res = await fetch(
+      '/secure/windows-release-notes?version=' + encodeURIComponent(version),
+      { credentials: 'same-origin' }
+    );
+    if (!res.ok) return 'error';
+    note = await res.json();
+  } catch (e) {
+    return 'error';
+  }
+
+  var items = (note && note.items) || [];
+  if (!items.length) return 'none';
 
   var style = document.createElement('style');
   style.textContent = [
@@ -57,6 +94,7 @@ export const WHATS_NEW_SCRIPT = `
     '.wn-list{margin:0 0 20px;padding:0;list-style:none;display:flex;flex-direction:column;gap:14px}',
     '.wn-item{display:flex;gap:13px;align-items:flex-start}',
     '.wn-item-icon{flex:none;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14)}',
+    '.wn-item-icon .material-icons{font-size:18px;line-height:1;color:#f5f6f8}',
     '.wn-item-title{display:block;font-size:13.5px;font-weight:600;color:#f2f4f9;margin-bottom:2px}',
     '.wn-item-desc{display:block;font-size:12.5px;line-height:1.45;color:#8e95aa}',
     '.wn-done{width:100%;padding:12px 16px;border:0;border-radius:12px;background:#f5f6f8;color:#111216;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:background 0.15s ease,transform 0.1s ease}',
@@ -65,30 +103,56 @@ export const WHATS_NEW_SCRIPT = `
   ].join('');
   document.head.appendChild(style);
 
-  var box = document.createElement('div');
+  // Built with DOM calls, never by assigning markup: every string below is
+  // authored in the admin panel, and textContent keeps a stray angle bracket
+  // from turning into elements in the page we are injected into.
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  var card = el('div', 'wn-card');
+
+  var closeBtn = el('button', 'wn-close', '\u00d7');
+  closeBtn.setAttribute('aria-label', 'Kapat');
+  closeBtn.title = 'Kapat';
+  card.appendChild(closeBtn);
+
+  card.appendChild(el('span', 'wn-badge', 'Yeni'));
+  card.appendChild(el('h2', 'wn-title', note.headline || 'AnimeciX g\u00fcncellendi'));
+  card.appendChild(
+    el('p', 'wn-sub', note.subtitle || 'Bu s\u00fcr\u00fcmle birlikte gelen yenilikler:')
+  );
+
+  var list = el('ul', 'wn-list');
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i] || {};
+    if (!item.title) continue;
+
+    var li = el('li', 'wn-item');
+    var iconWrap = el('span', 'wn-item-icon');
+    // Material Icons ligature — animecix.tv already loads the font.
+    iconWrap.appendChild(el('span', 'material-icons', item.icon || 'auto_awesome'));
+    li.appendChild(iconWrap);
+
+    var textWrap = el('span', null);
+    textWrap.appendChild(el('span', 'wn-item-title', item.title));
+    textWrap.appendChild(el('span', 'wn-item-desc', item.description || ''));
+    li.appendChild(textWrap);
+
+    list.appendChild(li);
+  }
+  if (!list.childNodes.length) return 'none';
+  card.appendChild(list);
+
+  var doneBtn = el('button', 'wn-done', 'Harika, anlad\u0131m');
+  card.appendChild(doneBtn);
+
+  var box = el('div', null);
   box.id = 'animecix-wn';
-  box.innerHTML =
-    '<div class="wn-card">' +
-      '<button class="wn-close" aria-label="Kapat" title="Kapat">&times;</button>' +
-      '<span class="wn-badge">Yeni</span>' +
-      '<h2 class="wn-title">AnimeciX g\u00fcncellendi</h2>' +
-      '<p class="wn-sub">Bu s\u00fcr\u00fcmle birlikte gelen yenilikler:</p>' +
-      '<ul class="wn-list">' +
-        '<li class="wn-item">' +
-          '<span class="wn-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5f6f8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>' +
-          '<span><span class="wn-item-title">Toplu \u0130ndir</span><span class="wn-item-desc">Anime sayfalar\u0131ndaki yeni "Toplu \u0130ndir" butonuyla sezonlar\u0131n tamam\u0131n\u0131 tek seferde indirin.</span></span>' +
-        '</li>' +
-        '<li class="wn-item">' +
-          '<span class="wn-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5f6f8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>' +
-          '<span><span class="wn-item-title">Sezon Se\u00e7imi</span><span class="wn-item-desc">Her sezon i\u00e7in ayr\u0131 b\u00f6l\u00fcm se\u00e7imi ve tek t\u0131kla "t\u00fcm\u00fcn\u00fc se\u00e7" kolayl\u0131\u011f\u0131.</span></span>' +
-        '</li>' +
-        '<li class="wn-item">' +
-          '<span class="wn-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5f6f8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>' +
-          '<span><span class="wn-item-title">Otomatik Kalite</span><span class="wn-item-desc">En iyi MP4 kalitesi otomatik se\u00e7ilir; indirmeler s\u0131rayla kuyru\u011fa eklenir.</span></span>' +
-        '</li>' +
-      '</ul>' +
-      '<button class="wn-done">Harika, anlad\u0131m</button>' +
-    '</div>';
+  box.appendChild(card);
 
   document.body.appendChild(box);
   requestAnimationFrame(function () { box.classList.add('wn-in'); });
@@ -101,17 +165,28 @@ export const WHATS_NEW_SCRIPT = `
     }, 360);
   }
 
-  box.querySelector('.wn-close').onclick = close;
-  box.querySelector('.wn-done').onclick = close;
+  closeBtn.onclick = close;
+  doneBtn.onclick = close;
   box.addEventListener('mousedown', function (e) { if (e.target === box) close(); });
-})();
+
+  return 'shown';
+})()
 `;
+
+/**
+ * Prepends the app version as its own statement. Interpolating it into the
+ * script template literal is not an option (see the note above it), and a
+ * JSON-encoded assignment is also the safest way to hand a value across.
+ */
+export function buildWhatsNewScript(version: string): string {
+  return 'window.__animecixAppVersion = ' + JSON.stringify(version) + ';\n' + WHATS_NEW_SCRIPT;
+}
 
 /**
  * Wires the one-time announcement. Call once after the main window exists.
  * - Fresh install: records the version, shows nothing.
- * - Updated install: records the version, injects the announcement box on the
- *   next page load (non-fatal on failure).
+ * - Updated install: looks up the version's note on the next page load and
+ *   shows it if one was authored.
  */
 export function setupWhatsNewAnnouncement(
   win: BrowserWindow,
@@ -121,15 +196,35 @@ export function setupWhatsNewAnnouncement(
   const currentVersion = app.getVersion();
   const lastAnnounced = storage.getSetting(ANNOUNCEMENT_VERSION_KEY);
 
+  // Record the version a fresh install starts on, so the first thing it ever
+  // announces is the next bump. Without this the install shows nothing on its
+  // first launch (correct) and then greets the user on the second one, because
+  // by then the DB exists and no version has been recorded.
+  if (isFreshInstall) {
+    storage.setSetting(ANNOUNCEMENT_VERSION_KEY, currentVersion);
+    return;
+  }
+
   if (!shouldAnnounce(isFreshInstall, lastAnnounced, currentVersion)) return;
 
-  storage.setSetting(ANNOUNCEMENT_VERSION_KEY, currentVersion);
-
-  win.webContents.once('did-finish-load', () => {
+  win.webContents.once('did-finish-load', async () => {
     if (win.isDestroyed()) return;
-    win.webContents.executeJavaScript(WHATS_NEW_SCRIPT, true).catch((err) => {
-      // Non-fatal: announcement is cosmetic — the version is already recorded.
+
+    let outcome: AnnounceOutcome = 'error';
+    try {
+      const result = await win.webContents.executeJavaScript(
+        buildWhatsNewScript(currentVersion),
+        true,
+      );
+      outcome = result === 'shown' || result === 'none' ? result : 'error';
+    } catch (err) {
+      // Non-fatal: the announcement is cosmetic. Leaving the version
+      // unrecorded means the next launch tries again.
       log.warn('[whats-new] injection failed:', (err as Error)?.message);
-    });
+    }
+
+    if (shouldRecordVersion(outcome)) {
+      storage.setSetting(ANNOUNCEMENT_VERSION_KEY, currentVersion);
+    }
   });
 }
