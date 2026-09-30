@@ -13,39 +13,49 @@ export const BATCH_DOWNLOAD_SCRIPT = `
   window.__animecixBatchDownload = true;
   var titleId = m[1];
 
-  // --- Signed API helper ---
-  // The site API validates every GET via an AES-GCM signed X-E-H header
-  // (CryptService inside the site bundle). Unsigned requests silently return
-  // unrelated default data (the first DB record) — which caused the original
-  // "no episodes" bug. The key material below is shipped in the public site
-  // bundle, so this mirrors the site's own requests exactly.
-  var HEADER_KEY = 'i4C7R2fXGocdYgFLzCbDlsJjukf8G58b';
+  // --- API helpers ---
+  // Both calls go to /secure/batch-download, the endpoint pair the backend
+  // added for this feature. The site's signed-request middleware only guards
+  // GETs whose URL contains "titles", so a dedicated path needs no signature —
+  // which is why this script no longer carries a copy of the site's signing
+  // key. See tests/network/batch-download.test.ts, which asserts it stays out.
+  var API_BASE = '/secure/batch-download/';
 
-  function bytesToB64(bytes) {
-    var s = '';
-    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-    return btoa(s);
+  // How many episodes to resolve per POST. Matches the backend's per-request
+  // cap, which in turn matches tau-video's batch limit.
+  var RESOLVE_CHUNK = 100;
+
+  async function apiGet(path) {
+    var res = await fetch(API_BASE + path, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
   }
 
-  async function buildSignedHeader(query) {
-    var iv = crypto.getRandomValues(new Uint8Array(12));
-    var keyBytes = Uint8Array.from(atob(btoa(HEADER_KEY)), function (c) { return c.charCodeAt(0); });
-    var key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt']);
-    var enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode('{version}' + query));
-    return bytesToB64(new Uint8Array(enc)) + '.' + bytesToB64(iv);
-  }
-
-  async function api(path, params) {
-    var keys = Object.keys(params || {});
-    var query = '';
-    for (var i = 0; i < keys.length; i++) {
-      if (i) query += '&';
-      query += encodeURIComponent(keys[i]) + '=' + encodeURIComponent(params[keys[i]]);
+  // Every /secure write is behind the site's double-submit CSRF check: the
+  // XSRF-TOKEN cookie has to be echoed back in the X-XSRF-TOKEN header, or the
+  // request comes back 403. The cookie is readable (httpOnly is off precisely
+  // so the SPA can do this), and the episodes GET above seeds it if the page
+  // does not have one yet.
+  function readXsrfToken() {
+    var parts = document.cookie.split(';');
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i].trim();
+      if (part.indexOf('XSRF-TOKEN=') === 0) {
+        return decodeURIComponent(part.substring('XSRF-TOKEN='.length));
+      }
     }
-    var header = await buildSignedHeader(query);
-    var res = await fetch('/secure/' + path + (query ? '?' + query : ''), {
+    return '';
+  }
+
+  async function apiPost(path, payload) {
+    var res = await fetch(API_BASE + path, {
+      method: 'POST',
       credentials: 'same-origin',
-      headers: { 'X-E-H': header }
+      headers: {
+        'Content-Type': 'application/json',
+        'X-XSRF-TOKEN': readXsrfToken()
+      },
+      body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
@@ -191,42 +201,21 @@ export const BATCH_DOWNLOAD_SCRIPT = `
     animeName = '';
     posterUrl = '';
     try {
-      // 1. Title meta (name, poster, season list)
-      var meta = await api('titles/' + titleId, { perPage: 100 });
-      var title = meta && meta.title;
-      if (!title) throw new Error('Veri bulunamad\u0131');
-      animeName = title.name || title.name_english || title.name_romanji || '';
-      posterUrl = title.poster || '';
-      var seasons = title.seasons || [];
+      // One request for the whole tree. The backend only lists episodes that
+      // actually have a video, so every row rendered below is downloadable.
+      var meta = await apiGet(titleId + '/episodes');
+      if (!meta || !meta.success) throw new Error('Veri bulunamad\u0131');
+      animeName = (meta.title && meta.title.name) || '';
+      posterUrl = (meta.title && meta.title.poster) || '';
+      var seasons = meta.seasons || [];
       for (var i = 0; i < seasons.length; i++) {
-        var sn = seasons[i].number;
-        seasonNames[sn] = seasons[i].name || (sn + '. Sezon');
-      }
-      // 2. Episodes per season (the site loads them season by season)
-      for (var s = 0; s < seasons.length; s++) {
-        await loadSeasonEpisodes(seasons[s].number);
+        var season = seasons[i];
+        seasonNames[season.number] = season.name || (season.number + '. Sezon');
+        episodesBySeason[season.number] = season.episodes || [];
       }
       renderSeasons();
     } catch (err) {
       statusEl.textContent = 'B\u00F6l\u00FCmler y\u00FCklenemedi: ' + (err && err.message ? err.message : 'bilinmeyen hata');
-    }
-  }
-
-  async function loadSeasonEpisodes(s) {
-    var page = 1;
-    for (;;) {
-      var r = await api('titles/' + titleId, { seasonNumber: s, page: page, perPage: 100 });
-      var season = r && r.title && r.title.season;
-      var pag = season && season.episodePagination;
-      if (!pag || !pag.data) return;
-      if (!episodesBySeason[s]) episodesBySeason[s] = [];
-      for (var i = 0; i < pag.data.length; i++) {
-        var ep = pag.data[i];
-        if (!ep || !ep.episode_number) continue;
-        episodesBySeason[s].push(ep);
-      }
-      if (page >= (pag.last_page || 1)) return;
-      page++;
     }
   }
 
@@ -248,7 +237,7 @@ export const BATCH_DOWNLOAD_SCRIPT = `
       var head = document.createElement('div');
       head.className = 'animecix-batch-season-head';
       head.innerHTML = '<input type="checkbox" class="animecix-batch-season-all"> <span>' + (seasonNames[s] || s + '. Sezon') + '</span>';
-      var eps = episodesBySeason[s].slice().sort(function (a, b) { return (a.episode_number || 0) - (b.episode_number || 0); });
+      var eps = episodesBySeason[s].slice().sort(function (a, b) { return (a.episode || 0) - (b.episode || 0); });
       head.querySelector('input').addEventListener('change', function (e) {
         var rows = e.target.closest('#animecix-batch-season').querySelectorAll('.animecix-batch-ep input');
         for (var r = 0; r < rows.length; r++) rows[r].checked = e.target.checked;
@@ -258,9 +247,11 @@ export const BATCH_DOWNLOAD_SCRIPT = `
         var ep = eps[j];
         var row = document.createElement('label');
         row.className = 'animecix-batch-ep';
-        row.innerHTML = '<input type="checkbox" value="' + (ep._id || ep.id || j) + '"> <span class="animecix-batch-ep-label">' +
-          (ep.name && ep.name.length > 2 ? ep.name : (ep.episode_number || '') + '. B\u00F6l\u00FCm') + '</span>' +
-          '<span class="animecix-batch-ep-index">S' + (ep.season_number || '') + ' E' + (ep.episode_number || '') + '</span>';
+        // The checkbox value is the backend's episodeId, which is also the key
+        // the download queue and the offline library use.
+        row.innerHTML = '<input type="checkbox" value="' + ep.episodeId + '"> <span class="animecix-batch-ep-label">' +
+          (ep.name && ep.name.length > 2 ? ep.name : (ep.episode || '') + '. B\u00F6l\u00FCm') + '</span>' +
+          '<span class="animecix-batch-ep-index">S' + (ep.season || '') + ' E' + (ep.episode || '') + '</span>';
         row.querySelector('input').addEventListener('change', updateCount);
         seasonDiv.appendChild(row);
       }
@@ -278,7 +269,7 @@ export const BATCH_DOWNLOAD_SCRIPT = `
       var seasonDiv = row.closest('#animecix-batch-season');
       var seasonNum = parseInt(seasonDiv.dataset.season, 10);
       var eps = episodesBySeason[seasonNum] || [];
-      var idx = eps.findIndex(function (ep) { return String(ep._id || ep.id) === rows[i].value; });
+      var idx = eps.findIndex(function (ep) { return ep.episodeId === rows[i].value; });
       if (idx !== -1) out.push(eps[idx]);
     }
     return out;
@@ -309,11 +300,6 @@ export const BATCH_DOWNLOAD_SCRIPT = `
     return best ? best.url : null;
   }
 
-  function status(msg) {
-    var el = bodyEl.querySelector('#animecix-batch-status');
-    if (el) el.textContent = msg;
-  }
-
   async function startDownload() {
     var eps = selectedEpisodes();
     if (!eps.length) return;
@@ -330,17 +316,38 @@ export const BATCH_DOWNLOAD_SCRIPT = `
     bodyEl.insertBefore(statusEl, bodyEl.firstChild);
     // NOTE: the loop keeps running if the modal is closed mid-batch — all DOM
     // references below are null-safe on detached nodes (see findRow guard).
-    for (var i = 0; i < eps.length; i++) {
-      var ep = eps[i];
-      var row = findRow(ep);
-      statusEl.textContent = (i + 1) + '/' + total + ' \u2014 ' + (ep.name || (ep.episode_number || '') + '. B\u00F6l\u00FCm');
+    for (var start = 0; start < eps.length; start += RESOLVE_CHUNK) {
+      var chunk = eps.slice(start, start + RESOLVE_CHUNK);
+      statusEl.textContent = 'Kaynaklar \u00E7\u00F6z\u00FCml\u00FCyor (' +
+        (start + 1) + '-' + (start + chunk.length) + '/' + total + ')...';
+
+      var resolved = null;
       try {
-        await downloadEpisode(ep);
-        done++;
-        if (row) row.classList.add('done');
+        resolved = await resolveEpisodes(chunk);
       } catch (err) {
-        failed++;
-        if (row) row.classList.add('failed');
+        // A whole chunk failing is a network or server problem rather than a
+        // per-episode one, so mark them all and try the next chunk.
+        for (var f = 0; f < chunk.length; f++) {
+          failed++;
+          var failedRow = findRow(chunk[f]);
+          if (failedRow) failedRow.classList.add('failed');
+        }
+        continue;
+      }
+
+      for (var i = 0; i < chunk.length; i++) {
+        var ep = chunk[i];
+        var row = findRow(ep);
+        statusEl.textContent = (start + i + 1) + '/' + total + ' \u2014 ' +
+          (ep.name || (ep.episode || '') + '. B\u00F6l\u00FCm');
+        try {
+          await enqueueEpisode(resolved[ep.episodeId]);
+          done++;
+          if (row) row.classList.add('done');
+        } catch (err) {
+          failed++;
+          if (row) row.classList.add('failed');
+        }
       }
     }
     statusEl.textContent = 'Tamamland\u0131: ' + done + ' eklendi' + (failed ? ', ' + failed + ' hata' : '');
@@ -376,7 +383,7 @@ export const BATCH_DOWNLOAD_SCRIPT = `
     // Modal may have been closed mid-batch — the download loop keeps running
     // detached, so missing rows are simply skipped.
     if (!modal) return null;
-    var key = String(ep._id || ep.id);
+    var key = ep.episodeId;
     var rows = modal.querySelectorAll('.animecix-batch-ep');
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].querySelector('input').value === key) return rows[i];
@@ -384,49 +391,39 @@ export const BATCH_DOWNLOAD_SCRIPT = `
     return null;
   }
 
-  async function downloadEpisode(ep) {
-    // 1. Fetch the episode's video list (embed URLs) — the title response does
-    //    not include per-episode videos.
-    var data = await api('episode-videos-points', {
-      titleId: titleId,
-      episode: ep.episode_number,
-      season: ep.season_number
-    });
-    var videos = (data && data.videos) || [];
-    // Prefer blu-ray encodes over regular ones, mirroring the site's ordering
-    var ordered = videos.slice().sort(function (a, b) {
-      var qa = a.quality === 'blu-ray' ? 1 : 0;
-      var qb = b.quality === 'blu-ray' ? 1 : 0;
-      return qb - qa;
-    });
-    // 2. Resolve the first embed that yields a downloadable video
-    var video = null;
-    for (var i = 0; i < ordered.length; i++) {
-      var tauId = extractTauId(ordered[i].url);
-      if (!tauId) continue;
-      var result = await window.animecix.fetchVideoData(tauId);
-      if (result && result.video && (result.video.urls || []).length) { video = result.video; break; }
+  // Resolves a batch of episodes to downloadable sources in one request and
+  // returns them keyed by episodeId. Episodes the backend could not resolve
+  // are simply absent from the map, so enqueueEpisode fails just that row.
+  async function resolveEpisodes(chunk) {
+    var payload = { episodes: [] };
+    for (var i = 0; i < chunk.length; i++) {
+      payload.episodes.push({ season: chunk[i].season, episode: chunk[i].episode });
     }
-    if (!video) throw new Error('Video bulunamad\u0131');
-    var url = pickBestUrl(video);
-    if (!url) throw new Error('Kalite bulunamad\u0131');
-    var subs = (video.subs || []).map(function (s) { return { language: s.language, url: s.url }; });
-    var title = (animeName ? animeName + ' ' : '') + (ep.season_number || '') + '. Sezon ' + (ep.episode_number || '') + '. B\u00F6l\u00FCm';
-    await window.animecix.downloadVideo(ep._id || String(ep.id), url, title, subs, {
-      animeTitle: animeName,
-      seasonNumber: String(ep.season_number || ''),
-      episodeNumber: String(ep.episode_number || ''),
-      translator: video.translator || '',
-      posterUrl: posterUrl
-    });
+    var response = await apiPost(titleId + '/videos', payload);
+    if (!response || !response.success) throw new Error('Kaynaklar al\u0131namad\u0131');
+
+    var byEpisodeId = {};
+    var items = response.data || [];
+    for (var j = 0; j < items.length; j++) {
+      byEpisodeId[items[j].episodeId] = items[j];
+    }
+    return byEpisodeId;
   }
 
-  function extractTauId(embedUrl) {
-    if (!embedUrl) return null;
-    try {
-      var segments = new URL(embedUrl).pathname.split('/').filter(Boolean);
-      return segments[segments.length - 1] || null;
-    } catch (e) { return null; }
+  async function enqueueEpisode(item) {
+    if (!item) throw new Error('Video bulunamad\u0131');
+    var url = pickBestUrl(item);
+    if (!url) throw new Error('Kalite bulunamad\u0131');
+    var subs = (item.subs || []).map(function (s) { return { language: s.language, url: s.url }; });
+    // episodeId and downloadTitle come from the backend so a batch download and
+    // a single download of the same episode share one library record.
+    await window.animecix.downloadVideo(item.episodeId, url, item.downloadTitle, subs, {
+      animeTitle: animeName,
+      seasonNumber: String(item.season || ''),
+      episodeNumber: String(item.episode || ''),
+      translator: item.translator || '',
+      posterUrl: posterUrl
+    });
   }
 })();
 `;
