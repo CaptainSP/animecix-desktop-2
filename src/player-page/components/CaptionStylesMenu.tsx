@@ -9,6 +9,7 @@ import {
   DefaultMenuSliderItem,
   DefaultSliderParts,
   DefaultSliderSteps,
+  type DefaultLayoutIcon,
   useDefaultLayoutContext,
   useDefaultLayoutWord,
 } from '@vidstack/react/player/layouts/default';
@@ -146,7 +147,10 @@ function getCssVarValue(type: FontSettingType, value: string, el: HTMLElement): 
  * their defaults. Keys mirror Vidstack: "vds-player:<kebab-case>".
  */
 function loadFontSettings(): FontSettings {
-  const settings = { ...FONT_DEFAULTS };
+  // Annotated rather than inferred: FONT_DEFAULTS is `as const`, so spreading it
+  // gives each key its literal type and the assignment below (a plain string
+  // off localStorage) narrows to `never`.
+  const settings: FontSettings = { ...FONT_DEFAULTS };
   for (const type of Object.keys(FONT_DEFAULTS) as FontSettingType[]) {
     const saved = localStorage.getItem(`vds-player:${camelToKebabCase(type)}`);
     if (saved != null) settings[type] = saved;
@@ -201,6 +205,16 @@ type FontControlProps = {
   update: (type: FontSettingType, value: string) => void;
 };
 
+/**
+ * Array.isArray narrows to `any[]`, which does not remove `readonly string[]`
+ * from the union in the else branch — hence an explicit predicate.
+ */
+function isLabelList(
+  values: Record<string, string> | readonly string[]
+): values is readonly string[] {
+  return Array.isArray(values);
+}
+
 /** Radio submenu (e.g. font family, text shadow). */
 function FontRadioControl({
   type,
@@ -208,11 +222,16 @@ function FontRadioControl({
   values,
   settings,
   update,
-}: FontControlProps & { type: FontSettingType; label: string; values: Record<string, string> | string[] }) {
+}: FontControlProps & {
+  type: FontSettingType;
+  label: string;
+  // readonly, because the option lists are declared `as const`.
+  values: Record<string, string> | readonly string[];
+}) {
   const hint = useDefaultLayoutWord(label);
-  const options = Array.isArray(values)
+  const options = isLabelList(values)
     ? values.map((entry) => ({ label: entry, value: entry.toLowerCase() }))
-    : Object.keys(values).map((entryLabel) => ({ label: entryLabel, value: values[entryLabel] }));
+    : Object.entries(values).map(([entryLabel, value]) => ({ label: entryLabel, value }));
   const current = settings[type];
   const currentLabel = options.find((option) => option.value === current)?.label ?? current;
 
@@ -267,8 +286,10 @@ function FontSliderControl({
   min: number;
   max: number;
   step: number;
-  UpIcon?: React.ComponentType<{ className?: string }>;
-  DownIcon?: React.ComponentType<{ className?: string }>;
+  // The exact type DefaultMenuSliderItem expects; the call sites pass
+  // icons.Menu.FontSizeUp and friends, which are declared as DefaultLayoutIcon.
+  UpIcon?: DefaultLayoutIcon;
+  DownIcon?: DefaultLayoutIcon;
 }) {
   const translated = useDefaultLayoutWord(label);
   const value = settings[type];

@@ -6,13 +6,30 @@ import {
   useDefaultLayoutWord,
 } from '@vidstack/react/player/layouts/default';
 
-type PlaybackRates = number[] | { min: number; max: number; step: number };
+// The range form's fields are optional because the expansion below supplies
+// defaults for each of them.
+type PlaybackRates = number[] | { min?: number; max?: number; step?: number };
+
+/**
+ * The speeds offered in the Hız submenu, in 0.25 steps up to 4x.
+ *
+ * Passed to the layout's playbackRates prop, which is where the menu reads them
+ * from. Kept as a named constant (and covered by a test) because an earlier
+ * revision quietly trimmed the list at 2x, which removed the fast-watch speeds
+ * people actually use without anything failing.
+ */
+export const PLAYBACK_RATES = [
+  0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4,
+];
 
 /**
  * Resolves the discrete selectable speeds from the layout playbackRates config.
  * Arrays are used verbatim; { min, max, step } ranges are expanded into a list.
  */
-export function getSpeedOptions(rates: PlaybackRates): number[] {
+export function getSpeedOptions(rates: PlaybackRates | undefined): number[] {
+  // The layout context types playbackRates as optional; falling back to the
+  // configured list keeps the menu from rendering empty if it is ever missing.
+  if (!rates) return PLAYBACK_RATES;
   if (Array.isArray(rates)) return rates;
   const { min = 0, max = 2, step = 0.25 } = rates;
   const options: number[] = [];

@@ -217,7 +217,8 @@
 }
 
 /* Radio options cascade in right after the panel - each row a few ms later
-   than the one above it (up to 8 options, the longest quality list). */
+   than the one above it. Only the first eight get their own delay; see the
+   nth-child(n + 9) rule below for why the cascade stops there. */
 .vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio {
   animation: animecix-submenu-item-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -251,6 +252,14 @@
 }
 
 .vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(8) {
+  animation-delay: 0.24s;
+}
+
+/* Everything past the eighth row shares the last delay. The speed list runs to
+   16 presets (0.25x-4x), well past the longest quality list, and without this
+   those rows would inherit no delay at all and flash in ahead of rows 2-8.
+   Continuing the stagger instead would push the bottom of the list to ~0.5s. */
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(n + 9) {
   animation-delay: 0.24s;
 }
 

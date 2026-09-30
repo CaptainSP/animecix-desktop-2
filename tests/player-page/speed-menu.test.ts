@@ -1,8 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import {
+  PLAYBACK_RATES,
   formatSpeedValue,
   getSpeedOptions,
 } from '../../src/player-page/components/SpeedMenu';
+
+describe('PLAYBACK_RATES', () => {
+  it('offers 0.25 steps all the way to 4x', () => {
+    expect(PLAYBACK_RATES[0]).toBe(0.25);
+    expect(PLAYBACK_RATES.at(-1)).toBe(4);
+    expect(PLAYBACK_RATES).toHaveLength(16);
+    for (let i = 1; i < PLAYBACK_RATES.length; i++) {
+      expect(PLAYBACK_RATES[i] - PLAYBACK_RATES[i - 1]).toBeCloseTo(0.25);
+    }
+  });
+
+  it('includes the above-2x speeds an earlier revision dropped', () => {
+    expect(PLAYBACK_RATES).toContain(2.5);
+    expect(PLAYBACK_RATES).toContain(3);
+    expect(PLAYBACK_RATES).toContain(4);
+  });
+});
 
 describe('getSpeedOptions', () => {
   it('uses a rates array verbatim', () => {

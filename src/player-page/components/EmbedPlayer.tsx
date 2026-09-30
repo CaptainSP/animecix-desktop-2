@@ -20,7 +20,7 @@ import { FlatSettingsMenu } from './FlatSettingsMenu';
 import { CaptionStylesMenu } from './CaptionStylesMenu';
 import { CaptionsMenu } from './CaptionsMenu';
 import { QualityMenu } from './QualityMenu';
-import { SpeedMenu } from './SpeedMenu';
+import { PLAYBACK_RATES, SpeedMenu } from './SpeedMenu';
 import { LiveBadge } from './LiveBadge';
 import { ViewerCount } from './ViewerCount';
 import { useVideoData } from '../hooks/useVideoData';
@@ -414,7 +414,7 @@ export function EmbedPlayer() {
           icons={defaultLayoutIcons}
           translations={turkishTranslations}
           thumbnails={isOffline ? undefined : import.meta.env.VITE_API_BASE_URL + '/preview/' + id}
-          playbackRates={[0.25, 0.5, 1, 1.25, 1.5, 2]}
+          playbackRates={PLAYBACK_RATES}
           slots={{
             settingsMenuItemsStart: <FlatSettingsMenu />,
             settingsMenuItemsEnd: (
