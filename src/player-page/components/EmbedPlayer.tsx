@@ -27,8 +27,6 @@ import { useVideoData } from '../hooks/useVideoData';
 import { useParentMessages, postToParent } from '../hooks/useParentMessages';
 import { useQualityPersistence } from '../hooks/useQualityPersistence';
 import { useVideoEnhancement } from '../hooks/useVideoEnhancement';
-import { useFrameInterpolation } from '../hooks/useFrameInterpolation';
-import { FrameInterpolationMenu } from './FrameInterpolationMenu';
 import { useLiveMode } from '../hooks/useLiveMode';
 import type { Video, SkipMeta } from '../types';
 import { useColorExtraction } from '../hooks/useColorExtraction';
@@ -78,8 +76,6 @@ export function EmbedPlayer() {
     preset, setPreset, filters, setFilters,
     isActive, hasOutput, stats, panelOpen, setPanelOpen,
   } = useVideoEnhancement(enhancementContainerRef);
-
-  const frameInterp = useFrameInterpolation();
 
   // changeVideo: reset time to 0 first, then fetch new video
   const changeVideo = useCallback(
@@ -419,7 +415,6 @@ export function EmbedPlayer() {
             settingsMenuItemsStart: <FlatSettingsMenu />,
             settingsMenuItemsEnd: (
               <>
-                <FrameInterpolationMenu frameInterp={frameInterp} />
                 <CaptionStylesMenu />
                 <CaptionsMenu />
                 <QualityMenu />
