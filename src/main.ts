@@ -17,7 +17,6 @@ import { createWindow, setupCloseIntercept, markQuitting, LOCAL_DEV_SITE_URL } f
 import { registerWindowIpc } from './window/window.ipc';
 import { AdBlocker } from './network/ad-blocker';
 import { setupRequestInterception } from './network/request-handler';
-import { setupBatchDownloadInjection } from './network/batch-download';
 import { setupHeaderRewriter } from './network/header-rewriter';
 import {
   registerDeepLinkProtocol,
@@ -133,9 +132,6 @@ if (!gotLock) {
     adBlocker.loadFilterLists();
     setupRequestInterception(adBlocker);
     setupHeaderRewriter();
-
-    // Phase 8: "Toplu İndir" — inject batch download UI into title pages
-    setupBatchDownloadInjection(mainWindow!.webContents);
 
     // Phase 2: Discord Rich Presence
     discord = new DiscordService();

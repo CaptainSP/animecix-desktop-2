@@ -8,9 +8,12 @@
  * version bump. Fresh installs are detected by the absence of the SQLite file
  * BEFORE StorageService creates it.
  *
- * Injection approach mirrors batch-download.ts: a self-contained script run via
- * webContents.executeJavaScript on did-finish-load. The box lives in the page
- * DOM (fixed position, top-right) with CSS slide-in / slide-out animations.
+ * Injected as a self-contained script run via webContents.executeJavaScript on
+ * did-finish-load. The box lives in the page DOM (fixed position, top-right)
+ * with CSS slide-in / slide-out animations. Injection is the right tool here
+ * because the announcement is about the app's own version, which the website
+ * knows nothing about — the batch download picker it advertises, by contrast,
+ * lives in animecix-angular.
  */
 
 import { app, type BrowserWindow } from 'electron';
