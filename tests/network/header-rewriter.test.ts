@@ -71,8 +71,31 @@ describe('HeaderRewriterService', () => {
 describe('ACAO override scope (Turnstile-safe)', () => {
   // Locks the scope so a future edit cannot silently re-globalize the override
   // and break Cloudflare Turnstile again.
-  it('CDN_ACAO_URL_PATTERNS is scoped to the CDN only', () => {
-    expect(CDN_ACAO_URL_PATTERNS).toEqual(['*://*.tau-video.xyz/*']);
+  it('CDN_ACAO_URL_PATTERNS covers both video origins, apex included', () => {
+    // "*.host" does not match the bare host in an Electron URL pattern, so the
+    // apex entries are not redundant.
+    expect(CDN_ACAO_URL_PATTERNS).toEqual([
+      '*://tau-video.xyz/*',
+      '*://*.tau-video.xyz/*',
+      '*://irtau1.online/*',
+      '*://*.irtau1.online/*',
+    ]);
+  });
+
+  it('CDN_ACAO_URL_PATTERNS stays off every other origin', () => {
+    // A global ACAO override forces '*' onto credentialed responses and breaks
+    // Cloudflare Turnstile — the scope is what keeps that from coming back.
+    const hosts = CDN_ACAO_URL_PATTERNS.map((p) => p.replace('*://', '').replace('/*', ''));
+    expect(hosts.some((h) => h.includes('cloudflare'))).toBe(false);
+    expect(hosts.some((h) => h.includes('animecix'))).toBe(false);
+  });
+
+  it('covers R2-hosted video files', () => {
+    // Videos stored on R2 reach the player as irtau1.online URLs, because
+    // replaceVideoUrl only rewrites the cdn4 prefix. Without this the CDN's own
+    // Access-Control-Allow-Origin (https://tau-video.xyz) reaches the browser
+    // and playback is blocked from the tau-player.localhost origin.
+    expect(isVideoCdnUrl('https://irtau1.online/c09bf6a2-7213.mp4')).toBe(true);
   });
 
   it('isVideoCdnUrl is true for CDN file and api URLs', () => {

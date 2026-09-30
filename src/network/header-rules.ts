@@ -12,6 +12,20 @@ export const FIREFOX_UA =
 
 const CDN = import.meta.env.VITE_CDN_DOMAIN;
 
+/**
+ * Second origin the video backend hands out, for files stored on R2.
+ *
+ * Hardcoded rather than read from an env var on purpose: the VITE_* values are
+ * supplied as CI secrets, and a name that is not wired up there resolves to
+ * `undefined`, which would silently turn the patterns below into
+ * "*://*.undefined/*". tau-backend has this host as a literal too.
+ *
+ * These URLs are stored complete in the database, so replaceVideoUrl (which
+ * only rewrites URLs starting with the cdn4 prefix) passes them through
+ * untouched and the player receives them as-is.
+ */
+const R2_DOMAIN = 'irtau1.online';
+
 export const HEADER_RULES: HeaderRule[] = [
   {
     urlPatterns: [`*://*.${CDN}/file/*`],
@@ -33,7 +47,15 @@ export const HEADER_RULES: HeaderRule[] = [
  * credentialed CORS responses break if their ACAO is forced to '*'.
  * Whole-domain scope so m3u8 playlists and segments are all covered.
  */
-export const CDN_ACAO_URL_PATTERNS = [`*://*.${CDN}/*`];
+export const CDN_ACAO_URL_PATTERNS = [
+  // Both the apex and its subdomains: an Electron pattern of "*.host" does NOT
+  // match the bare host, so "*://*.tau-video.xyz/*" alone skipped every apex
+  // URL — isVideoCdnUrl already counted those as CDN, so the two disagreed.
+  `*://${CDN}/*`,
+  `*://*.${CDN}/*`,
+  `*://${R2_DOMAIN}/*`,
+  `*://*.${R2_DOMAIN}/*`,
+];
 
 /**
  * Pure predicate: is this URL served by the video CDN? Used to keep the ACAO
@@ -42,7 +64,9 @@ export const CDN_ACAO_URL_PATTERNS = [`*://*.${CDN}/*`];
 export function isVideoCdnUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname;
-    return host === CDN || host.endsWith('.' + CDN);
+    return [CDN, R2_DOMAIN].some(
+      (domain) => host === domain || host.endsWith('.' + domain)
+    );
   } catch {
     return false;
   }
