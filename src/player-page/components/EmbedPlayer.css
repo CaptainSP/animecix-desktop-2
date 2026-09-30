@@ -48,11 +48,227 @@
   --media-brand: #0074e4;
   --media-focus-ring-color: rgba(0, 116, 228, 0.65);
   --media-slider-track-fill-bg: #0074e4;
-  --media-menu-bg: rgba(10, 10, 10, 0.92);
+  --media-menu-bg: rgba(10, 10, 10, 0.48);
   --media-menu-border: 1px solid rgba(255, 255, 255, 0.12);
+  --media-menu-border-radius: 12px;
+  --media-menu-item-border-radius: 8px;
+  --media-menu-section-border-radius: 8px;
+  --media-menu-item-height: 32px;
+  --media-menu-padding: 8px;
+  --media-menu-min-width: 300px;
+  /* Root settings panel height: 7 rows × 38px + 2×8px padding + 2×1px border.
+     The quick submenus are pinned inside the root panel (see the :has rule
+     below), so this value must match the settings list height. vidstack
+     re-measures --menu-height whenever menu content changes (submenu toggles),
+     which would otherwise shrink the panel (Kalite → ~246px) or balloon it
+     (Altyazı Tarzları → ~828px). Keep in sync with the settings row count. */
+  --animecix-settings-height: 284px;
   --media-tooltip-bg: rgba(10, 10, 10, 0.92);
   --media-tooltip-color: #fff;
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Glass effect for the settings menu - the default backdrop blur (4px) is
+   invisible behind the old 0.92 opacity background, so raise it and let the
+   video bleed through the now semi-transparent --media-menu-bg above. */
+.vds-menu-items[data-root] {
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Pin the settings menu to the far right edge of the player instead of the
+   settings button (which sits ~100px left of the edge next to PiP/fullscreen).
+   The menu is absolutely positioned inside .vds-controls (inset: 0), so the
+   right offset aligns it with the controls padding. */
+.vds-settings-menu-items[data-root][data-placement] {
+  left: auto !important;
+  right: clamp(12px, 2vw, 24px) !important;
+}
+
+/* Submenu (Kalite/Hız) opens and closes with a 0.35s height transition that
+   stretches the menu into intermediate heights. Snap instead of animating. */
+.vds-menu-items[data-root] {
+  height: auto !important;
+  transition: none !important;
+}
+
+/* Menu open animation: fade + rise + scale-in. The default vds-menu-enter only
+   fades the menu; this gives it a subtle pop that is not tied to the (disabled)
+   height transition above. */
+@keyframes animecix-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.vds-menu-items[data-root][aria-hidden='false'] {
+  animation: animecix-menu-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion) {
+  .vds-menu-items[data-root][aria-hidden='false'] {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Submenu panels (Kalite/Hız/Altyazı Tarzları) slide in from the right and
+   grow (scale) when they open. The root height snaps instantly (see above),
+   so the fade + slide + grow keeps the swap from feeling like an empty pop. */
+@keyframes animecix-submenu-enter {
+  from {
+    opacity: 0;
+    transform: translateX(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes animecix-submenu-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] {
+  animation: animecix-submenu-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Hız & Kalite submenus: same box as the settings menu (same top and height).
+   By default the submenu is in-flow below its trigger row (vidstack keeps the
+   row as a sticky header), which offsets the panel from the root menu. Pinning
+   it over the root menu requires the root height to stay stable, so pin it to
+   the settings list height instead of --menu-height (which vidstack re-measures
+   whenever content changes — see the --animecix-settings-height comment). */
+.vds-settings-menu-items[data-root]:has(.vds-quick-submenu[data-open]) {
+  height: var(--animecix-settings-height) !important;
+  /* The sticky trigger row overflows the content box by ~2px, which draws a
+     thin horizontal scrollbar that eats ~10px of client height. That shrinks
+     the anchored submenu (height: 100%) and leaves a lighter glass band at the
+     bottom of the panel. Clip instead of scroll — the submenu scrolls itself. */
+  overflow-x: hidden !important;
+}
+
+/* Caption styles menu needs more vertical room for its sections (Font, Text,
+   Text Background, Display Background, Reset). Only this submenu gets the
+   taller height — Hız and Kalite keep the default. */
+.vds-settings-menu-items[data-root]:has(.vds-font-style-items[data-open]) {
+  height: 360px !important;
+}
+
+/* The open submenu's trigger row acts as the panel header (label + back
+   navigation). It normally stays in the root's flow behind the anchored
+   submenu — dimmed under the panel background and unclickable — so the first
+   list item (e.g. 0.25x) ends up under it. Lift it above its own panel and
+   pin it to the panel's top. Works for nested quick submenus too (the
+   containing block is the nearest positioned ancestor = the open panel). */
+.vds-menu:has(> .vds-menu-items.vds-quick-submenu[data-open]) > .vds-menu-item {
+  position: absolute !important;
+  top: var(--media-menu-padding, 8px) !important;
+  left: var(--media-menu-padding, 8px) !important;
+  right: var(--media-menu-padding, 8px) !important;
+  /* The default sticky-row rule keeps width: 100%, which over-constrains the
+     left/right offsets and makes the header stick out past the panel's right
+     edge by the offset amount. Resolve width from the offsets instead. */
+  width: auto !important;
+  z-index: 2 !important;
+  /* Mask the scrolling list behind the header (Altyazı Tarzları). */
+  /* Fully transparent — no background, just text over the video. A thin
+     bottom border marks the header boundary. */
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.vds-quick-submenu[data-open] {
+  position: absolute !important;
+  inset: 0 !important;
+  /* With inset 0 and height auto the box sizes to its content and bottom: 0 is
+     ignored, leaving a gap under the panel. Pin the height to fill the root. */
+  height: 100% !important;
+  /* Header row (38px) + 6px gap + panel padding, so the list starts below
+     the header with a small breathing room. */
+  padding: calc(var(--media-menu-padding, 8px) + 38px + 6px) var(--media-menu-padding, 8px) var(--media-menu-padding, 8px) !important;
+  display: flex;
+  flex-direction: column;
+  /* Align the list to the start — short lists (Kalite, Hız) sit flush at
+     the top below the header, and tall lists (Altyazı Tarzları) scroll
+     from the top. */
+  justify-content: flex-start;
+  overflow-y: auto !important;
+}
+
+/* Slightly taller radio rows in the quick submenus: default rows are 38px
+   (18px text + 2×10px padding), bring them to 36px. */
+.vds-quick-submenu[data-open] .vds-radio {
+  padding-top: 9px !important;
+  padding-bottom: 9px !important;
+}
+
+/* Radio options cascade in right after the panel - each row a few ms later
+   than the one above it. Only the first eight get their own delay; see the
+   nth-child(n + 9) rule below for why the cascade stops there. */
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio {
+  animation: animecix-submenu-item-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(1) {
+  animation-delay: 0.03s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(2) {
+  animation-delay: 0.06s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(3) {
+  animation-delay: 0.09s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(4) {
+  animation-delay: 0.12s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(5) {
+  animation-delay: 0.15s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(6) {
+  animation-delay: 0.18s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(7) {
+  animation-delay: 0.21s;
+}
+
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(8) {
+  animation-delay: 0.24s;
+}
+
+/* Everything past the eighth row shares the last delay. The speed list runs to
+   16 presets (0.25x-4x), well past the longest quality list, and without this
+   those rows would inherit no delay at all and flash in ahead of rows 2-8.
+   Continuing the stagger instead would push the bottom of the list to ~0.5s. */
+.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(n + 9) {
+  animation-delay: 0.24s;
+}
+
+@media (prefers-reduced-motion) {
+  .vds-menu-items[data-submenu][aria-hidden='false'],
+  .vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .vds-controls-group {
@@ -64,6 +280,15 @@
 }
 
 .vds-audio-menu {
+  display: none !important;
+}
+
+/* Hide the default settings submenus — they are replaced by flat menu items
+   injected via the settingsMenuItemsStart/End slots (FlatSettingsMenu.tsx,
+   QualityMenu.tsx, SpeedMenu.tsx, CaptionStylesMenu.tsx, CaptionsMenu.tsx). */
+.vds-playback-menu,
+.vds-captions-menu,
+.vds-accessibility-menu {
   display: none !important;
 }
 
@@ -402,4 +627,51 @@
   .offline-header {
     padding-right: 12px;
   }
+}
+
+/* ── Frame interpolation compact switch (settings menu) ────────────── */
+
+.ve-switch-compact {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  min-width: 36px;
+  max-width: 36px;
+  min-height: 20px;
+  max-height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex: 0 0 36px;
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ve-switch-compact.on {
+  background: #0074E4;
+}
+
+.ve-switch-compact.loading {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ve-switch-compact-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.ve-switch-compact.on .ve-switch-compact-thumb {
+  transform: translateX(16px);
 }

@@ -4,7 +4,7 @@ import { StorageService } from '../storage/StorageService';
 import type { TrayManager } from '../download/TrayManager';
 
 const isMac = process.platform === 'darwin';
-const LOCAL_DEV_SITE_URL = 'http://localhost:4200';
+export const LOCAL_DEV_SITE_URL = 'http://localhost:4200';
 const DEFAULT_SITE_URL = 'https://animecix.tv';
 
 /**

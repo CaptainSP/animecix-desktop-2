@@ -15,6 +15,7 @@
 import { ipcMain, BrowserWindow, net, app } from 'electron';
 import { StorageService } from '../storage/StorageService';
 import { LibraryManager } from './LibraryManager';
+import { pruneMissingDownloads } from '../download/prune-missing';
 import type { Video, SkipMeta } from '../player-page/types';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -40,6 +41,7 @@ export function registerLibraryIpc(
   mainWindow: BrowserWindow,
   storage: StorageService,
   libraryManager: LibraryManager,
+  downloadsDir: string,
 ): void {
   ipcMain.handle('library:getAnimes', async () => {
     return storage.getLibraryAnimes();
@@ -50,6 +52,9 @@ export function registerLibraryIpc(
   });
 
   ipcMain.handle('library:show', async () => {
+    // Freshen the library first: drop records whose video file was deleted
+    // manually, so the overlay never shows episodes that no longer exist.
+    pruneMissingDownloads(storage, downloadsDir);
     libraryManager.show();
   });
 

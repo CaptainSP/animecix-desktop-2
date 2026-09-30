@@ -391,6 +391,23 @@ export class StorageService {
     return row?.anime_title ?? null;
   }
 
+  getAllEpisodeMetadata(): {
+    episodeId: string;
+    source: 'download' | 'cache';
+    videoPath: string;
+    subPaths: string;
+  }[] {
+    const rows = this.db
+      .prepare(`SELECT episode_id, source, video_path, sub_paths FROM episode_metadata`)
+      .all() as Record<string, unknown>[];
+    return rows.map((r) => ({
+      episodeId: r['episode_id'] as string,
+      source: r['source'] as 'download' | 'cache',
+      videoPath: (r['video_path'] as string) ?? '',
+      subPaths: (r['sub_paths'] as string) ?? '[]',
+    }));
+  }
+
   getLibraryAnimes(): { animeTitle: string; posterPath: string; episodeCount: number }[] {
     const rows = this.db
       .prepare(

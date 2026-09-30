@@ -16,10 +16,16 @@ import { SkipButton } from './SkipButton';
 import { MusicInfo } from './MusicInfo';
 import { NavigationButtons } from './NavigationButtons';
 import { EnhancementPanel } from './EnhancementPanel';
+import { FlatSettingsMenu } from './FlatSettingsMenu';
+import { CaptionStylesMenu } from './CaptionStylesMenu';
+import { CaptionsMenu } from './CaptionsMenu';
+import { QualityMenu } from './QualityMenu';
+import { PLAYBACK_RATES, SpeedMenu } from './SpeedMenu';
 import { LiveBadge } from './LiveBadge';
 import { ViewerCount } from './ViewerCount';
 import { useVideoData } from '../hooks/useVideoData';
 import { useParentMessages, postToParent } from '../hooks/useParentMessages';
+import { useQualityPersistence } from '../hooks/useQualityPersistence';
 import { useVideoEnhancement } from '../hooks/useVideoEnhancement';
 import { useLiveMode } from '../hooks/useLiveMode';
 import type { Video, SkipMeta } from '../types';
@@ -58,6 +64,14 @@ export function EmbedPlayer() {
   const { liveState, setLiveMode, liveSeek, updateViewerCount, endLiveMode } = useLiveMode(playerRef);
   const canvasRef = useColorExtraction();
   const enhancementContainerRef = useRef<HTMLDivElement>(null);
+
+  // Re-applies the manual quality preference after every episode switch
+  // (PLAY-05) — the "Otomatik" quality menu option resets otherwise.
+  const sourcesSignature = data
+    ? data.hls || data.urls.map((item) => item.url).join('|')
+    : null;
+  useQualityPersistence(playerRef, sourcesSignature);
+
   const {
     preset, setPreset, filters, setFilters,
     isActive, hasOutput, stats, panelOpen, setPanelOpen,
@@ -107,6 +121,43 @@ export function EmbedPlayer() {
 
     return () => {
       player.textRenderers.remove(renderer);
+    };
+  }, []);
+
+  // Preserve playback position across fullscreen transitions.
+  // HLS re-evaluates quality variants on viewport resize (fullscreen toggle),
+  // which can reset currentTime to 0 in "Otomatik" mode. This effect saves
+  // the position before the change and restores it if it gets reset.
+  useEffect(() => {
+    let savedTime = -1;
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onFsChange = () => {
+      const player = playerRef.current;
+      if (!player) return;
+
+      const isFs = !!document.fullscreenElement;
+      if (isFs) {
+        savedTime = player.currentTime;
+      } else if (savedTime > 0) {
+        const t = savedTime;
+        savedTime = -1;
+        const tryRestore = () => {
+          const p = playerRef.current;
+          if (p && p.currentTime < 1 && t > 1) {
+            p.currentTime = t;
+          }
+        };
+        tryRestore();
+        player.addEventListener('loadeddata', tryRestore, { once: true });
+        restoreTimer = setTimeout(tryRestore, 800);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      if (restoreTimer) clearTimeout(restoreTimer);
     };
   }, []);
 
@@ -359,8 +410,17 @@ export function EmbedPlayer() {
           icons={defaultLayoutIcons}
           translations={turkishTranslations}
           thumbnails={isOffline ? undefined : import.meta.env.VITE_API_BASE_URL + '/preview/' + id}
-          playbackRates={[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4]}
+          playbackRates={PLAYBACK_RATES}
           slots={{
+            settingsMenuItemsStart: <FlatSettingsMenu />,
+            settingsMenuItemsEnd: (
+              <>
+                <CaptionStylesMenu />
+                <CaptionsMenu />
+                <QualityMenu />
+                <SpeedMenu />
+              </>
+            ),
             afterSettingsMenu: (
               <EnhancementPanel
                 preset={preset}

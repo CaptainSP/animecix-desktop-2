@@ -12,7 +12,7 @@
   height: 40px;
   background: transparent;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--media-button-border-radius, 8px);
   color: var(--media-button-icon-color, #fff);
   cursor: pointer;
   opacity: var(--media-controls-opacity, 1);
@@ -34,32 +34,74 @@
 }
 
 .ve-panel {
-  position: absolute;
-  right: 0;
-  bottom: 68px;
+  /* Pinned to the player's right edge (same clamp offset as the settings
+     menu in EmbedPlayer.css). Fixed to the iframe viewport because the
+     toggle's own containing block sits ~100px away from the edge. */
+  position: fixed;
+  right: clamp(12px, 2vw, 24px);
+  /* Bottom edge must sit at the same level as the settings menu (75px from
+     the bottom — measured: the placement engine hugs the controls row). */
+  bottom: 75px;
   z-index: 999998;
-  width: min(320px, calc(100vw - 28px));
-  max-height: min(520px, calc(100vh - 92px));
+  width: min(340px, calc(100vw - 28px));
+  max-height: min(580px, calc(100vh - 92px));
   overflow-y: auto;
-  background:
-    linear-gradient(180deg, rgba(24, 24, 24, 0.96), rgba(8, 8, 8, 0.94));
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  padding: 16px;
+  /* Glass look must match the settings menus (EmbedPlayer.css defines the
+     --media-menu-* tokens on .vds-video-layout, so they cascade here). */
+  background: var(--media-menu-bg, rgba(10, 10, 10, 0.62));
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: var(--media-menu-border, 1px solid rgba(255, 255, 255, 0.12));
+  border-radius: var(--media-menu-border-radius, 12px);
+  padding: 12px;
   color: #fff;
   font-family: 'Inter', 'Helvetica Neue', sans-serif;
   font-size: 14px;
   pointer-events: auto;
   box-shadow: 0 20px 52px rgba(0, 0, 0, 0.55);
+  /* Same entrance animation as the settings menu (animecix-menu-enter in
+     EmbedPlayer.css): fade + rise + scale-in. */
+  animation: animecix-menu-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* WebKit (Chrome, Edge, Safari) */
+.ve-panel::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ve-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ve-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+}
+
+.ve-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* The scale-to-fit JS (EnhancementPanel.tsx) applies an inline transform that
+   the fill-mode animation would override — skip the entrance for fitted panels. */
+.ve-panel.ve-panel-fit {
+  animation: none;
+}
+
+@media (prefers-reduced-motion) {
+  .ve-panel {
+    animation: none;
+  }
 }
 
 .ve-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
   padding: 0;
   font-weight: 600;
   font-size: 16px;
@@ -85,7 +127,7 @@
 }
 
 .ve-section {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .ve-section-title {
@@ -106,7 +148,7 @@
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
@@ -140,7 +182,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .ve-output-badge {
@@ -164,7 +206,7 @@
 /* Performance indicator */
 .ve-perf {
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid;
@@ -190,7 +232,7 @@
 
 /* Sliders */
 .ve-slider {
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .ve-slider-header {
@@ -226,8 +268,8 @@
 
 .ve-reset-btn {
   width: 100%;
-  padding: 8px;
-  margin-top: 4px;
+  padding: 6px;
+  margin-top: 2px;
   background: transparent;
   border: none;
   border-radius: 8px;
@@ -243,6 +285,123 @@
   background: transparent;
 }
 
+/* Frame interpolation toggle */
+.ve-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.ve-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ve-toggle-label {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.ve-toggle-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.ve-toggle-error {
+  margin-top: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #f87171;
+}
+
+/* Switch */
+.ve-switch {
+  position: relative;
+  width: 40px !important;
+  height: 22px !important;
+  min-width: 40px;
+  max-width: 40px;
+  min-height: 22px;
+  max-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex: 0 0 40px;
+  font: inherit;
+  line-height: 0;
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ve-switch.on {
+  background: #0074E4;
+}
+
+.ve-switch.loading {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ve-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.ve-switch.on .ve-switch-thumb {
+  transform: translateX(18px);
+}
+
+/* Interpolation status */
+.ve-interp-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 116, 228, 0.08);
+  border: 1px solid rgba(0, 116, 228, 0.2);
+  border-radius: 6px;
+}
+
+.ve-interp-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  background: rgba(0, 116, 228, 0.2);
+  border-radius: 999px;
+  color: #4da6ff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ve-interp-fps {
+  color: #4ade80;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ve-interp-detail {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  margin-left: auto;
+}
+
 @media (max-width: 640px) {
   .ve-toggle-btn {
     width: 40px;
@@ -250,7 +409,7 @@
   }
 
   .ve-panel {
-    bottom: 62px;
-    right: -48px;
+    bottom: 69px;
+    right: 12px;
   }
 }
