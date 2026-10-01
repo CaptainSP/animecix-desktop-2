@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   MediaPlayer,
   MediaProvider,
   Track,
   LibASSTextRenderer,
+  isHLSProvider,
   type MediaPlayerInstance,
+  type MediaProviderAdapter,
 } from '@vidstack/react';
 import {
   DefaultVideoLayout,
@@ -28,6 +30,9 @@ import { useParentMessages, postToParent } from '../hooks/useParentMessages';
 import { useQualityPersistence } from '../hooks/useQualityPersistence';
 import { useVideoEnhancement } from '../hooks/useVideoEnhancement';
 import { useLiveMode } from '../hooks/useLiveMode';
+import { useQualityGuard } from '../hooks/useQualityGuard';
+import { usePlaybackRecovery } from '../hooks/usePlaybackRecovery';
+import { readPreferredQualityHeight } from './preferredQuality';
 import type { Video, SkipMeta } from '../types';
 import { useColorExtraction } from '../hooks/useColorExtraction';
 import './EmbedPlayer.css';
@@ -39,6 +44,17 @@ const regionNamesInTurkish = new Intl.DisplayNames(['tr'], {
 const isIOS =
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// Vidstack otherwise pulls hls.js from jsDelivr at runtime (`hls.js@^1.5.0`),
+// which in a packaged app under tau-player:// means reaching the network for a
+// core dependency. Point it at the bundled copy so package.json decides, and so
+// it keeps working offline. Dormant while the API strips HLS (DISABLE_HLS) and
+// cached streams are muxed to MP4 before they reach the player.
+function onProviderChange(provider: MediaProviderAdapter | null) {
+  if (isHLSProvider(provider)) {
+    provider.library = () => import('hls.js');
+  }
+}
 
 function parseIdFromPath(): string {
   // Support /embed/:id and /embed-2/:id path formats
@@ -58,7 +74,6 @@ export function EmbedPlayer() {
 
   const playerRef = useRef<MediaPlayerInstance>(null);
   const readyFiredRef = useRef(false);
-  const pendingVideoChange = useRef(false);
 
   const { data, meta, loading, offlineNav, fetchVideo, setPrefetchedData } = useVideoData(id, vid);
   const { liveState, setLiveMode, liveSeek, updateViewerCount, endLiveMode } = useLiveMode(playerRef);
@@ -77,7 +92,25 @@ export function EmbedPlayer() {
     isActive, hasOutput, stats, panelOpen, setPanelOpen,
   } = useVideoEnhancement(enhancementContainerRef);
 
-  // changeVideo: reset time to 0 first, then fetch new video
+  // HLS carries its own seamless switching; only the MP4 ladder needs pinning.
+  const qualityGuard = useQualityGuard(playerRef, { pinAuto: !data?.hls });
+
+  const onPlaybackUnrecoverable = useCallback(() => {
+    // The nudge did not take either, so this player is not going to start.
+    // Hand it back to the site, which reloads the iframe from scratch.
+    postToParent('changeVideoFailed');
+  }, []);
+  const playback = usePlaybackRecovery(playerRef, {
+    onUnrecoverable: onPlaybackUnrecoverable,
+  });
+
+  // changeVideo: swap in the next episode without reloading the iframe.
+  //
+  // The playhead is wound back first. Vidstack keeps the same <video> element
+  // and provider across an episode change, so a finished episode hands the swap
+  // an element parked at end-of-stream, and the new stream's start position gets
+  // derived from that stale playhead — leaving a black frame that only a manual
+  // seek escapes.
   const changeVideo = useCallback(
     (videoId: string, videoVid?: string) => {
       const player = playerRef.current;
@@ -85,8 +118,13 @@ export function EmbedPlayer() {
         player.currentTime = 0;
       }
       readyFiredRef.current = false;
-      pendingVideoChange.current = true;
-      fetchVideo(videoId, videoVid);
+      fetchVideo(videoId, videoVid).then((result) => {
+        if (result !== 'failed') return;
+        // Nothing replaced the finished episode, so the viewer is still staring
+        // at its end screen. Tell the site, which can fall back to a full iframe
+        // reload rather than leaving the next-episode button looking dead.
+        postToParent('changeVideoFailed', { id: videoId });
+      });
     },
     [fetchVideo]
   );
@@ -95,13 +133,26 @@ export function EmbedPlayer() {
   // Note: 'prefered_language' is the tau-website spelling — kept for compatibility
   const preferredLang = localStorage.getItem('prefered_language') || 'tr';
 
-  const tracks = (data?.subs || []).map((sub) => ({
-    kind: 'subtitles' as const,
-    label: regionNamesInTurkish.of(sub.language) + ' - ' + sub.name,
-    src: isIOS ? import.meta.env.VITE_API_BASE_URL + '/vtt/' + sub.id : sub.url,
-    language: sub.language,
-    type: (isIOS ? 'vtt' : 'ass') as 'vtt' | 'ass',
-  }));
+  // Memoised because useParentMessages keys its listener and reporting timers
+  // off these identities — rebuilding them every render used to tear the
+  // interval down before it could ever fire.
+  const tracks = useMemo(
+    () =>
+      (data?.subs || []).map((sub) => ({
+        kind: 'subtitles' as const,
+        label: regionNamesInTurkish.of(sub.language) + ' - ' + sub.name,
+        src: isIOS ? import.meta.env.VITE_API_BASE_URL + '/vtt/' + sub.id : sub.url,
+        language: sub.language,
+        type: (isIOS ? 'vtt' : 'ass') as 'vtt' | 'ass',
+      })),
+    [data]
+  );
+
+  // Only one track per kind may be default. Marking every same-language track
+  // default made the player wait on all of them before it could start.
+  const defaultTrackIndex = tracks.findIndex(
+    (track) => track.language === preferredLang
+  );
 
   // Register LibASSTextRenderer on non-iOS platforms only
   useEffect(() => {
@@ -198,10 +249,19 @@ export function EmbedPlayer() {
     setPrefetchedData(video, skipMeta);
   }, [setPrefetchedData]);
 
+  const liveCallbacks = useMemo(
+    () => ({ setLiveMode, liveSeek, updateViewerCount, endLiveMode }),
+    [setLiveMode, liveSeek, updateViewerCount, endLiveMode]
+  );
+
   // Parent message handler
-  const { navInfo } = useParentMessages(playerRef, changeSub, changeVideo, onInitVideoData, {
-    setLiveMode, liveSeek, updateViewerCount, endLiveMode,
-  });
+  const { navInfo } = useParentMessages(
+    playerRef,
+    changeSub,
+    changeVideo,
+    onInitVideoData,
+    liveCallbacks
+  );
 
   // Report caption changes to parent (when user manually changes subtitles in player UI)
   // This triggers animecix.tv to persist the preference to SQLite via IPC
@@ -237,32 +297,61 @@ export function EmbedPlayer() {
     document.oncontextmenu = (e) => e.preventDefault();
   }, []);
 
-  // Build sources
-  let sources: unknown = undefined;
-  if (data) {
-    if (data.hls) {
-      sources = { src: data.hls, type: 'application/x-mpegurl' };
-    } else if (data.urls.length > 0) {
-      sources = data.urls.map((item) => {
-        const height = parseInt(item.label.replace('p', ''));
-        const width = Math.floor((data.ratio || 16 / 9) * height);
-        return {
-          src: item.url,
-          height,
-          width,
-          type: 'video/mp4',
-          bitrate: (8 * item.size) / (data.duration || 1),
-          codec: 'h264',
-        };
-      });
-    }
-  }
+  const sources = useMemo((): unknown => {
+    if (!data) return undefined;
+    if (data.hls) return { src: data.hls, type: 'application/x-mpegurl' };
+    if (data.urls.length === 0) return undefined;
+
+    const entries = data.urls.map((item) => {
+      const height = parseInt(item.label.replace('p', ''));
+      return {
+        src: item.url,
+        height,
+        width: Math.floor((data.ratio || 16 / 9) * height),
+        type: 'video/mp4',
+        bitrate: (8 * item.size) / (data.duration || 1),
+        codec: 'h264',
+      };
+    });
+
+    // Vidstack loads the first entry it can play, and only then does its own
+    // auto quality score the ladder against the player's size and swap
+    // `video.src` — a second load() that aborts the first. Leading with the
+    // entry it is going to settle on makes that swap a no-op: no abandoned
+    // download of the wrong file on every episode change, and no window where
+    // `canPlay` fires for a source that is about to be torn down, which is what
+    // left playback on a black frame with a play() promise that never settled.
+    //
+    // This mirrors Vidstack's own scorer. Guessing wrong only costs the extra
+    // switch that happens today, so it degrades instead of breaking.
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const distance = (entry: { width: number; height: number }) =>
+      Math.abs(entry.width - viewportWidth) +
+      Math.abs(entry.height - viewportHeight);
+
+    // A stored quality outranks the viewport guess: that is the one
+    // useQualityPersistence restores just after canPlay, and the restore is
+    // what aborts the first fetch when it lands on a different source.
+    const preferredHeight = readPreferredQualityHeight();
+
+    return [...entries].sort((a, b) => {
+      if (preferredHeight !== null) {
+        const aPreferred = a.height === preferredHeight ? 0 : 1;
+        const bPreferred = b.height === preferredHeight ? 0 : 1;
+        if (aPreferred !== bPreferred) return aPreferred - bPreferred;
+      }
+      return distance(a) - distance(b);
+    });
+  }, [data]);
 
   // Event handlers
   function onCanPlay() {
-    try {
-      playerRef.current?.play().catch(() => {});
-    } catch {}
+    qualityGuard.handleCanPlay();
+    playerRef.current?.play().catch(() => {});
+    // That promise never settles at all when the pipeline comes up with nothing
+    // at the playhead, so watch the playhead instead of awaiting it.
+    playback.arm();
 
     postToParent('canPlay', { first: !readyFiredRef.current });
 
@@ -273,6 +362,7 @@ export function EmbedPlayer() {
   }
 
   function onEnded() {
+    playback.disarm();
     if (isOffline && offlineNav?.nextEpisodeId) {
       // INTENTIONAL `any` — offline player has no preload bridge. See OPEN-SOURCE-AUDIT.md §2.
       (window as any).animecix?.playOfflineEpisode?.(offlineNav.nextEpisodeId); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -376,6 +466,13 @@ export function EmbedPlayer() {
         storage="tau-video"
         duration={data.duration}
         load="eager"
+        // Vidstack defaults to "metadata", which parks the element on an empty
+        // buffer waiting for a play() that has to un-suspend it. Everything here
+        // autoplays, so there is nothing to save by holding back.
+        preload="auto"
+        onProviderChange={onProviderChange}
+        onQualityChange={qualityGuard.handleQualityChange}
+        onError={qualityGuard.handleError}
         onCanPlay={onCanPlay}
         onEnded={onEnded}
         onPlay={onPlay}
@@ -394,7 +491,7 @@ export function EmbedPlayer() {
               kind={track.kind}
               label={track.label}
               language={track.language}
-              default={track.language === preferredLang}
+              default={i === defaultTrackIndex}
               type={track.type}
             />
           ))}
@@ -409,6 +506,12 @@ export function EmbedPlayer() {
         <DefaultVideoLayout
           icons={defaultLayoutIcons}
           translations={turkishTranslations}
+          // The layout defaults to "system", which puts a `light` class on the
+          // menus for viewers whose OS is in light mode. That class sets the
+          // menu text to #1a1a1a — near-black on the dark glass panel this
+          // player hardcodes, so labels all but disappear while the hints keep
+          // their own lighter colour. Our chrome is dark, so say so.
+          colorScheme="dark"
           thumbnails={isOffline ? undefined : import.meta.env.VITE_API_BASE_URL + '/preview/' + id}
           playbackRates={PLAYBACK_RATES}
           slots={{

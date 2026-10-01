@@ -26,6 +26,12 @@ export interface OfflineNavigation {
   episodeNumber: string;
 }
 
+/**
+ * 'superseded' means a newer fetch replaced this one — not a failure, so
+ * callers must not treat it as one.
+ */
+export type FetchResult = 'loaded' | 'superseded' | 'failed';
+
 export function useVideoData(initialId: string, initialVid?: string) {
   const [data, setData] = useState<Video | null>(null);
   const [meta, setMeta] = useState<SkipMeta | null>(null);
@@ -35,8 +41,11 @@ export function useVideoData(initialId: string, initialVid?: string) {
   // Track whether we received pre-fetched data from the parent (desktop app fast path)
   const prefetchedRef = useRef(false);
 
-  const fetchVideo = useCallback(async (id: string, vid?: string) => {
-    if (!id) return;
+  const fetchVideo = useCallback(async (
+    id: string,
+    vid?: string
+  ): Promise<FetchResult> => {
+    if (!id) return 'failed';
 
     // Cancel previous fetch
     cancelRef.current?.();
@@ -53,7 +62,7 @@ export function useVideoData(initialId: string, initialVid?: string) {
       const res = await fetch(url);
       const videoData: Video = await res.json();
 
-      if (cancelled) return;
+      if (cancelled) return 'superseded';
       setData(videoData);
 
       // Fetch skip markers
@@ -80,8 +89,11 @@ export function useVideoData(initialId: string, initialVid?: string) {
       } catch {
         // Skip markers not available
       }
+
+      return 'loaded';
     } catch (err) {
       console.error('Failed to fetch video data:', err);
+      return 'failed';
     } finally {
       if (!cancelled) setLoading(false);
     }

@@ -285,8 +285,14 @@
 
 /* Hide the default settings submenus — they are replaced by flat menu items
    injected via the settingsMenuItemsStart/End slots (FlatSettingsMenu.tsx,
-   QualityMenu.tsx, SpeedMenu.tsx, CaptionStylesMenu.tsx, CaptionsMenu.tsx). */
+   QualityMenu.tsx, SpeedMenu.tsx, CaptionStylesMenu.tsx, CaptionsMenu.tsx).
+   Vidstack split its single playback menu into separate quality and speed
+   menus, so .vds-playback-menu alone stopped matching anything here and the
+   defaults came back alongside ours — a second "Hız" and "Kalite" row. The old
+   name is kept so this still holds if the player is ever rolled back. */
 .vds-playback-menu,
+.vds-quality-menu,
+.vds-speed-menu,
 .vds-captions-menu,
 .vds-accessibility-menu {
   display: none !important;

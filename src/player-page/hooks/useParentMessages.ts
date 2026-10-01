@@ -8,6 +8,9 @@ import type { Video, SkipMeta } from '../types';
 // the postMessage bridge. See OPEN-SOURCE-AUDIT.md "Intentional Bypasses §4".
 const TARGET_ORIGIN = '*';
 
+/** Seconds the playhead may drift during a pending seek before we treat it as the viewer's own. */
+const USER_SEEK_EPSILON = 3;
+
 export function postToParent(action: string, data?: Record<string, unknown>) {
   window.parent.postMessage({ action, ...data }, TARGET_ORIGIN);
 }
@@ -28,6 +31,7 @@ export function useParentMessages(
 ) {
   const pingRef = useRef(false);
   const pongRef = useRef(false);
+  const pendingSeekRef = useRef<number | null>(null);
   const [navInfo, setNavInfo] = useState<{ hasNext: boolean; hasPrev: boolean } | null>(null);
 
   useEffect(() => {
@@ -44,10 +48,36 @@ export function useParentMessages(
       if (data.action === 'pong') {
         pongRef.current = true;
       } else if (data.action === 'seek' && player) {
-        const seekTime = data.time || 0.01;
-        setTimeout(() => {
-          player.currentTime = seekTime;
-          player.play().catch(() => {});
+        // The parent answers `getCurrentTime` with the saved resume position,
+        // so this lands whenever its lookup happens to finish. Two things used
+        // to go wrong: a missing or zero position was coerced to 0.01, and the
+        // seek was applied a second later no matter what the viewer had done in
+        // the meantime — together that threw people back to the start right
+        // after they had scrubbed forward. Keep the exact time, supersede any
+        // seek still pending, and let the viewer's own seek win.
+        const parsedTime = Number(data.time);
+        const seekTime = Number.isFinite(parsedTime)
+          ? Math.max(parsedTime, 0)
+          : null;
+
+        if (pendingSeekRef.current !== null) {
+          clearTimeout(pendingSeekRef.current);
+        }
+
+        const timeWhenScheduled = player.currentTime;
+        pendingSeekRef.current = window.setTimeout(() => {
+          pendingSeekRef.current = null;
+          const target = playerRef.current;
+          if (!target) return;
+          // Playback itself can only advance ~1s during the delay (2s at 2x),
+          // so a bigger jump means the viewer moved the playhead.
+          const movedByViewer =
+            Math.abs(target.currentTime - timeWhenScheduled) > USER_SEEK_EPSILON;
+          if (seekTime !== null && !movedByViewer) {
+            target.currentTime = seekTime;
+          }
+          // Live and group-watch rely on a seek resuming playback too.
+          target.play().catch(() => {});
         }, 1000);
       } else if (data.action === 'play' && player) {
         player.play().catch(() => {});
@@ -174,6 +204,10 @@ export function useParentMessages(
       clearInterval(timeInterval);
       clearInterval(quickTimeInterval);
       clearTimeout(validationTimeout);
+      if (pendingSeekRef.current !== null) {
+        clearTimeout(pendingSeekRef.current);
+        pendingSeekRef.current = null;
+      }
     };
   }, [playerRef, onChangeSub, onChangeVideo, onInitVideoData, liveMode]);
 
