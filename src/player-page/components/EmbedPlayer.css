@@ -275,8 +275,21 @@
   padding-inline: clamp(12px, 2vw, 24px);
 }
 
+/* The scrim behind the controls. `.vds-controls` is inset: 0, so every
+   percentage here is a share of the whole player — a stop at 78% dimmed more
+   than half the picture every time the controls came up (0.65 alpha a fifth of
+   the way up, 0.32 at the middle of the frame), which viewers reported as a
+   black shade rising from the bottom on every mouse move or seek. Keep the
+   scrim where the controls actually are: strong behind the button row and the
+   time slider (the bottom ~10% of the player), gone by 26%. */
 .vds-controls {
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.88), transparent 78%) !important;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.82) 0%,
+    rgba(0, 0, 0, 0.45) 7%,
+    rgba(0, 0, 0, 0.12) 16%,
+    transparent 26%
+  ) !important;
 }
 
 .vds-audio-menu {
