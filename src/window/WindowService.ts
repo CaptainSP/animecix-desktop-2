@@ -8,6 +8,14 @@ export const LOCAL_DEV_SITE_URL = 'http://localhost:4200';
 const DEFAULT_SITE_URL = 'https://animecix.tv';
 
 /**
+ * Height of the website's player masthead, which doubles as this window's title
+ * bar on the watch page. Kept in step with --player-navbar-height in the
+ * website's player-navbar component; the OS caption buttons are drawn into a
+ * strip of exactly this height.
+ */
+const PLAYER_NAVBAR_HEIGHT = 56;
+
+/**
  * Cloudflare Turnstile (and similar CAPTCHAs) flag User-Agents containing an
  * "Electron/…" token. Strip the Electron and app-name tokens from the default
  * UA so the underlying Chromium presents as plain Chrome, letting Turnstile
@@ -118,7 +126,11 @@ export function createWindow(storage: StorageService): BrowserWindow {
     browserWindowOptions.titleBarOverlay = {
       color: '#1D1D1D',
       symbolColor: '#ffffff',
-      height: 40,
+      // Matches the website masthead's height so the OS caption buttons sit
+      // centred within the bar rather than riding above its midline. The watch
+      // page's bar is the window's title bar now — it reserves the horizontal
+      // strip via env(titlebar-area-*), but the height has to be agreed here.
+      height: PLAYER_NAVBAR_HEIGHT,
     };
   }
 
