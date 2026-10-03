@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 
 type Handler = (event: unknown, ...args: unknown[]) => unknown;
@@ -14,6 +14,8 @@ const { FakeNotification, notifications } = vi.hoisted(() => {
     private listeners = new Map<string, () => void>();
 
     static isSupported = vi.fn(() => true);
+    /** false = OS bildirimi bastirdi (izin yok / Odak modu). */
+    static emitShowOnShow = true;
 
     constructor(options: { title: string; body: string }) {
       this.options = options;
@@ -27,6 +29,9 @@ const { FakeNotification, notifications } = vi.hoisted(() => {
 
     show() {
       this.shown = true;
+      // macOS gercekten ekrana getirdiginde 'show' tetikleniyor; testler bunu
+      // bastirilmis bildirimi taklit etmek icin kapatabiliyor.
+      if (Notif.emitShowOnShow) this.listeners.get('show')?.();
     }
 
     click() {
@@ -48,10 +53,12 @@ vi.mock('electron', () => {
     },
     BrowserWindow: class {},
     Notification: FakeNotification,
+    dialog: { showMessageBox: vi.fn(() => Promise.resolve({ response: 1 })) },
+    shell: { openExternal: vi.fn() },
   };
 });
 
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, shell } from 'electron';
 import { registerNotificationsIpc } from '../../src/notifications/notifications.ipc';
 import { PUSH_CHANNELS, type PushNotificationPayload as PushNotification } from '../../src/notifications/push.types';
 
@@ -65,6 +72,18 @@ class FakePush extends EventEmitter {
   getToken() {
     return this.token;
   }
+}
+
+/** SQLite yerine bellekte ayar deposu. */
+function createStorageStub(initial: Record<string, string> = {}) {
+  const rows = new Map(Object.entries(initial));
+  return {
+    rows,
+    getSetting: (key: string) => rows.get(key) ?? null,
+    setSetting: (key: string, value: string) => {
+      rows.set(key, value);
+    },
+  };
 }
 
 function createWindowStub() {
@@ -115,13 +134,14 @@ const PAYLOAD: PushNotification = {
 beforeEach(() => {
   notifications.length = 0;
   FakeNotification.isSupported.mockReturnValue(true);
+  FakeNotification.emitShowOnShow = true;
 });
 
 describe('registerNotificationsIpc', () => {
   it('answers push:getToken from the service', async () => {
     const push = new FakePush();
     const win = createWindowStub();
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     expect(await ipc.__invoke(PUSH_CHANNELS.GET_TOKEN)).toBeNull();
 
@@ -132,7 +152,7 @@ describe('registerNotificationsIpc', () => {
   it('forwards a new token to the renderer', () => {
     const push = new FakePush();
     const win = createWindowStub();
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     push.emit('token', 'fcm-token');
 
@@ -142,7 +162,7 @@ describe('registerNotificationsIpc', () => {
   it('shows an OS notification and forwards the payload to the renderer', () => {
     const push = new FakePush();
     const win = createWindowStub();
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     push.emit('notification', PAYLOAD);
 
@@ -157,7 +177,7 @@ describe('registerNotificationsIpc', () => {
     const win = createWindowStub();
     win.minimized = true;
     win.visible = false;
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     push.emit('notification', PAYLOAD);
     notifications[0].click();
@@ -171,7 +191,7 @@ describe('registerNotificationsIpc', () => {
   it('does not navigate when the push carried no usable link', () => {
     const push = new FakePush();
     const win = createWindowStub();
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     push.emit('notification', { ...PAYLOAD, url: null });
     notifications[0].click();
@@ -184,7 +204,7 @@ describe('registerNotificationsIpc', () => {
     FakeNotification.isSupported.mockReturnValue(false);
     const push = new FakePush();
     const win = createWindowStub();
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     push.emit('notification', PAYLOAD);
 
@@ -197,13 +217,101 @@ describe('registerNotificationsIpc', () => {
     const push = new FakePush();
     const win = createWindowStub();
     win.destroyed = true;
-    registerNotificationsIpc(push as never, () => win as never);
+    registerNotificationsIpc(push as never, () => win as never, createStorageStub() as never);
 
     expect(() => push.emit('notification', PAYLOAD)).not.toThrow();
     expect(win.sent).toEqual([]);
 
     const pushWithoutWindow = new FakePush();
-    registerNotificationsIpc(pushWithoutWindow as never, () => null);
+    registerNotificationsIpc(pushWithoutWindow as never, () => null, createStorageStub() as never);
     expect(() => pushWithoutWindow.emit('token', 'x')).not.toThrow();
+  });
+});
+
+describe('izin uyarisi', () => {
+  // `show` olayi bastirilmis bir bildirimi taklit etmek icin kapatiliyor:
+  // macOS izin yokken show() sessizce hicbir sey yapiyor, olay da tetiklenmiyor.
+  function arrange(storageRows: Record<string, string> = {}) {
+    const push = new FakePush();
+    const win = createWindowStub();
+    const storage = createStorageStub(storageRows);
+    registerNotificationsIpc(push as never, () => win as never, storage as never);
+    return { push, storage };
+  }
+
+  // Platform SABITLENIYOR: uyari yalnizca macOS'ta cikiyor ve CI bu paketi
+  // ubuntu + windows runner'larinda da kosuyor. Gercek platforma birakilsaydi
+  // bu testler yalnizca bir Mac'te gecerdi.
+  const realPlatform = process.platform;
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    vi.useFakeTimers();
+    (dialog.showMessageBox as ReturnType<typeof vi.fn>).mockClear();
+    (dialog.showMessageBox as ReturnType<typeof vi.fn>).mockResolvedValue({ response: 1 });
+    (shell.openExternal as ReturnType<typeof vi.fn>).mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true });
+  });
+
+  it('bildirim ekrana gelmezse kullaniciyi bir kez uyarir', async () => {
+    FakeNotification.emitShowOnShow = false;
+    const { push, storage } = arrange();
+
+    push.emit('notification', PAYLOAD);
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(dialog.showMessageBox).toHaveBeenCalledTimes(1);
+    expect(storage.rows.get('push_permission_hint_shown')).toBe('1');
+  });
+
+  it('ikinci bir bastirilmis bildirimde tekrar uyarmaz', async () => {
+    FakeNotification.emitShowOnShow = false;
+    const { push } = arrange();
+
+    push.emit('notification', PAYLOAD);
+    await vi.advanceTimersByTimeAsync(6000);
+    push.emit('notification', PAYLOAD);
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(dialog.showMessageBox).toHaveBeenCalledTimes(1);
+  });
+
+  it('bildirim gosterildiyse uyarmaz ve durumu kaydeder', async () => {
+    const { push, storage } = arrange();
+
+    push.emit('notification', PAYLOAD);
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(storage.rows.get('push_display_confirmed')).toBe('1');
+    expect(dialog.showMessageBox).not.toHaveBeenCalled();
+  });
+
+  it('daha once bildirim gosterilmisse sessiz kalir', async () => {
+    // Odak modu da bildirimi bastirir; bir kez calistigi bilinen bir kurulumda
+    // her sessiz bildirim icin uyarmak yanlis olurdu.
+    FakeNotification.emitShowOnShow = false;
+    const { push } = arrange({ push_display_confirmed: '1' });
+
+    push.emit('notification', PAYLOAD);
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(dialog.showMessageBox).not.toHaveBeenCalled();
+  });
+
+  it('"Ayarlari Ac" secilirse bildirim ayarlarini acar', async () => {
+    FakeNotification.emitShowOnShow = false;
+    (dialog.showMessageBox as ReturnType<typeof vi.fn>).mockResolvedValue({ response: 0 });
+    const { push } = arrange();
+
+    push.emit('notification', PAYLOAD);
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(shell.openExternal).toHaveBeenCalledWith(
+      'x-apple.systempreferences:com.apple.Notifications-Settings.extension',
+    );
   });
 });

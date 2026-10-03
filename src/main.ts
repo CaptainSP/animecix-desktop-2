@@ -346,7 +346,7 @@ if (!gotLock) {
     const pushConfig = PushService.configFromEnv();
     if (pushConfig) {
       push = new PushService(storage, pushConfig, import.meta.env.VITE_SITE_URL);
-      registerNotificationsIpc(push, () => mainWindow);
+      registerNotificationsIpc(push, () => mainWindow, storage);
       void push.start();
     }
   }).catch((err) => {

@@ -1,7 +1,7 @@
 {
   "name": "animecix-v2",
   "productName": "AnimeciX",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Electron desktop app for AnimeciX — anime streaming, downloading, and offline playback",
   "main": ".vite/build/main.js",
   "private": true,
