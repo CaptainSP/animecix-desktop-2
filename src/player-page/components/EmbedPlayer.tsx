@@ -32,6 +32,7 @@ import { useVideoEnhancement } from '../hooks/useVideoEnhancement';
 import { useLiveMode } from '../hooks/useLiveMode';
 import { useQualityGuard } from '../hooks/useQualityGuard';
 import { usePlaybackRecovery } from '../hooks/usePlaybackRecovery';
+import { useKeepAwake } from '../hooks/useKeepAwake';
 import { readPreferredQualityHeight } from './preferredQuality';
 import type { Video, SkipMeta } from '../types';
 import { useColorExtraction } from '../hooks/useColorExtraction';
@@ -103,6 +104,7 @@ export function EmbedPlayer() {
   const playback = usePlaybackRecovery(playerRef, {
     onUnrecoverable: onPlaybackUnrecoverable,
   });
+  const keepAwake = useKeepAwake();
 
   // changeVideo: swap in the next episode without reloading the iframe.
   //
@@ -363,6 +365,7 @@ export function EmbedPlayer() {
 
   function onEnded() {
     playback.disarm();
+    keepAwake.release();
     if (isOffline && offlineNav?.nextEpisodeId) {
       // INTENTIONAL `any` — offline player has no preload bridge. See OPEN-SOURCE-AUDIT.md §2.
       (window as any).animecix?.playOfflineEpisode?.(offlineNav.nextEpisodeId); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -372,10 +375,12 @@ export function EmbedPlayer() {
   }
 
   function onPlay() {
+    keepAwake.acquire();
     postToParent('play');
   }
 
   function onPause() {
+    keepAwake.release();
     postToParent('pause');
   }
 

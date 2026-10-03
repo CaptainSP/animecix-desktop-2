@@ -80,6 +80,11 @@ export interface AnimecixAPI {
   // Open URL in system default browser (used by Angular for Google OAuth login)
   openLink: (url: string) => Promise<void>;
 
+  // Holds the display awake while an episode plays (OS power save blocker).
+  // Called by animecix.tv on the player's play/pause postMessages, and by the
+  // player page directly when it is the top-level document (offline playback).
+  setKeepAwake: (enabled: boolean) => Promise<void>;
+
   // --- Video data pre-fetch (fast path for tau-video sources) ---
   // Fetches video data + skip markers from tau-video.xyz API via main process (no CORS).
   // Returns { video, meta } or null on failure.

@@ -87,6 +87,7 @@ src/
 ├── offline/             # animecix-offline:// protocol handler
 ├── player/              # tau-player:// protocol handler
 ├── player-page/         # React app for video player (Vidstack + JASSUB)
+├── power/               # Display keep-awake (powerSaveBlocker) during playback
 ├── storage/             # SQLite StorageService + schema
 ├── types/               # TypeScript type definitions
 ├── updater/             # Auto-update service + in-app banner

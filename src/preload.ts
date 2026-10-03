@@ -48,6 +48,13 @@ const api: AnimecixAPI = {
   // Open URL in system default browser (used by Angular for Google OAuth login)
   openLink: (url: string) => ipcRenderer.invoke('window:openLink', url),
 
+  // Keep the display awake while an episode plays. Called by animecix.tv on the
+  // player's play/pause postMessages, and by the player page itself during
+  // offline playback (where it is the top-level document, so it has the bridge).
+  // Chromium's built-in video wake lock is tied to the <video> staying visible,
+  // which the iframe in a scrollable watch page cannot promise.
+  setKeepAwake: (enabled: boolean) => ipcRenderer.invoke('power:setKeepAwake', enabled),
+
   // --- Video data pre-fetch (fast path for tau-video sources) ---
   // Website calls fetchVideoData BEFORE loading the player iframe.
   // Main process fetches from tau-video.xyz API (no CORS, Node.js net module).

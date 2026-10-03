@@ -40,6 +40,8 @@ import { setupWhatsNewAnnouncement } from './updater/whats-new';
 import { LibraryManager } from './library/LibraryManager';
 import { registerLibraryIpc } from './library/library.ipc';
 import { shouldOpenLibraryOnLoadFailure } from './library/offline-fallback';
+import { PowerService } from './power/PowerService';
+import { registerPowerIpc } from './power/power.ipc';
 
 // Ignores GPU blocklist for all platforms to force hardware acceleration
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -71,6 +73,7 @@ let trayManager: TrayManager | null = null;
 let updaterService: UpdaterService | null = null;
 let updaterBanner: UpdaterBanner | null = null;
 let libraryManager: LibraryManager | null = null;
+let power: PowerService | null = null;
 
 // Register deep link protocol BEFORE app.ready (required by Electron)
 registerDeepLinkProtocol();
@@ -113,6 +116,11 @@ if (!gotLock) {
     storage = new StorageService();
     mainWindow = createWindow(storage);
     registerWindowIpc(mainWindow);
+
+    // Keeps the display awake while an episode plays — Chromium's own video wake
+    // lock is released as soon as the player iframe scrolls out of view.
+    power = new PowerService();
+    registerPowerIpc(power, mainWindow);
 
     // Phase 2: Register tau-player:// protocol handler (serves assets/player/)
     registerTauProtocol();
@@ -349,6 +357,9 @@ if (!gotLock) {
     } else if (storage) {
       mainWindow = createWindow(storage);
       registerWindowIpc(mainWindow);
+      // The old window's lifecycle listeners died with it, so the blocker needs
+      // rebinding to the new one.
+      if (power) registerPowerIpc(power, mainWindow);
     }
   });
 
@@ -366,6 +377,8 @@ if (!gotLock) {
     libraryManager = null;
     trayManager?.destroyTray();
     trayManager = null;
+    power?.dispose();
+    power = null;
     discord?.destroy();
     discord = null;
     storage?.close();
