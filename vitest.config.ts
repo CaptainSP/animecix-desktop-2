@@ -11,6 +11,13 @@ const TEST_ENV = {
   VITE_CDN_DOMAIN: 'tau-video.xyz',
   VITE_SITE_URL: 'https://animecix.tv',
   VITE_DISCORD_CLIENT_ID: '921684324141641728',
+  // Push config is only asserted as "present vs absent" by the suite, so these
+  // are placeholders rather than the real project's values.
+  VITE_FCM_PROJECT_ID: 'animecix-test',
+  VITE_FCM_APP_ID: '1:000000000000:web:0000000000000000000000',
+  VITE_FCM_API_KEY: 'test-api-key',
+  VITE_FCM_SENDER_ID: '000000000000',
+  VITE_FCM_VAPID_KEY: 'test-vapid-key',
 };
 
 export default defineConfig({

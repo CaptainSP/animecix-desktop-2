@@ -4,7 +4,8 @@
 // See: animecix-v2/src/types/animecix-api.d.ts
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AnimecixAPI, DownloadProgress } from './types/animecix-api';
+import type { AnimecixAPI, DownloadProgress, PushNotification } from './types/animecix-api';
+import { PUSH_CHANNELS } from './notifications/push.types';
 import { UPDATER_CHANNELS } from './types/updater.js';
 import type { UpdateReadyPayload, DownloadProgressPayload, UpdaterApi } from './types/updater.js';
 
@@ -139,6 +140,21 @@ const api: AnimecixAPI = {
   hideLibrary: () => ipcRenderer.invoke('library:hide'),
   playOfflineEpisode: (episodeId: string) => ipcRenderer.invoke('library:playEpisode', episodeId),
   getOfflineVideoData: () => ipcRenderer.invoke('library:getOfflineVideoData'),
+
+  // --- Push notifications (Phase 9) ---
+  // animecix.tv reads the token and POSTs it to secure/devices/push-token with
+  // its own session cookie; the main process has no auth of its own.
+  getPushToken: () => ipcRenderer.invoke(PUSH_CHANNELS.GET_TOKEN),
+  onPushToken: (cb: (token: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, token: string) => cb(token);
+    ipcRenderer.on(PUSH_CHANNELS.TOKEN, handler);
+    return () => ipcRenderer.removeListener(PUSH_CHANNELS.TOKEN, handler);
+  },
+  onPushMessage: (cb: (payload: PushNotification) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: PushNotification) => cb(payload);
+    ipcRenderer.on(PUSH_CHANNELS.MESSAGE, handler);
+    return () => ipcRenderer.removeListener(PUSH_CHANNELS.MESSAGE, handler);
+  },
 };
 
 // --- Updater API (Phase 4) — conforming to UpdaterApi ---

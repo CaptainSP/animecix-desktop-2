@@ -42,6 +42,8 @@ import { registerLibraryIpc } from './library/library.ipc';
 import { shouldOpenLibraryOnLoadFailure } from './library/offline-fallback';
 import { PowerService } from './power/PowerService';
 import { registerPowerIpc } from './power/power.ipc';
+import { PushService } from './notifications/PushService';
+import { registerNotificationsIpc } from './notifications/notifications.ipc';
 
 // Ignores GPU blocklist for all platforms to force hardware acceleration
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -74,6 +76,7 @@ let updaterService: UpdaterService | null = null;
 let updaterBanner: UpdaterBanner | null = null;
 let libraryManager: LibraryManager | null = null;
 let power: PowerService | null = null;
+let push: PushService | null = null;
 
 // Register deep link protocol BEFORE app.ready (required by Electron)
 registerDeepLinkProtocol();
@@ -332,6 +335,20 @@ if (!gotLock) {
 
     // Register Discord RPC episode lifecycle IPC handlers
     registerDiscordIpc(() => discord);
+
+    // Phase 9: Firebase push notifications — same topics and payloads the
+    // mobile app receives. IPC is registered before start() so the website
+    // cannot miss the token event if registration completes quickly.
+    //
+    // Deliberately NOT awaited: registration talks to Google over the network
+    // and the window must not wait on it. When the FCM config is absent from
+    // this build, configFromEnv() returns null and push stays off.
+    const pushConfig = PushService.configFromEnv();
+    if (pushConfig) {
+      push = new PushService(storage, pushConfig, import.meta.env.VITE_SITE_URL);
+      registerNotificationsIpc(push, () => mainWindow);
+      void push.start();
+    }
   }).catch((err) => {
     console.error('Failed to initialize app:', err);
     app.quit();
@@ -379,6 +396,8 @@ if (!gotLock) {
     trayManager = null;
     power?.dispose();
     power = null;
+    push?.destroy();
+    push = null;
     discord?.destroy();
     discord = null;
     storage?.close();

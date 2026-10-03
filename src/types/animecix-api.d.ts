@@ -61,6 +61,16 @@ export interface LibraryEpisode {
   offlineUrl: string;
 }
 
+// Push notification payload after normalisation (Phase 9).
+// Mirrors src/notifications/push.types.ts — duplicated here because the
+// website consumes this .d.ts as the whole desktop contract.
+export interface PushNotification {
+  title: string;
+  body: string;
+  url: string | null;
+  image: string | null;
+}
+
 export interface AnimecixAPI {
   // Window controls — invoke IPC calls to main process
   minimize: () => Promise<void>;
@@ -149,6 +159,18 @@ export interface AnimecixAPI {
   showLibrary: () => Promise<void>;
   hideLibrary: () => Promise<void>;
   playOfflineEpisode: (episodeId: string) => Promise<void>;
+
+  // --- Push notifications (Phase 9) ---
+  // The website registers the token with animecix-js
+  // (POST secure/devices/push-token) using its own session — the main process
+  // has no auth. Returns null while registration is still in flight or when
+  // push is disabled (no FCM config in this build).
+  getPushToken: () => Promise<string | null>;
+  // Fires when a token first arrives or FCM rotates it. Returns unsubscribe.
+  onPushToken: (cb: (token: string) => void) => () => void;
+  // Fires for every push. The OS notification is shown by the main process;
+  // this is for updating the in-app bell without a refetch.
+  onPushMessage: (cb: (payload: PushNotification) => void) => () => void;
 }
 
 declare global {

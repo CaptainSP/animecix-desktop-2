@@ -127,7 +127,29 @@ jobs:
           VITE_SITE_URL=${{ secrets.VITE_SITE_URL }}
           VITE_DISCORD_CLIENT_ID=${{ secrets.VITE_DISCORD_CLIENT_ID }}
           VITE_PLAYER_SECRET=${{ secrets.VITE_PLAYER_SECRET }}
+          VITE_FCM_PROJECT_ID=${{ secrets.VITE_FCM_PROJECT_ID }}
+          VITE_FCM_APP_ID=${{ secrets.VITE_FCM_APP_ID }}
+          VITE_FCM_API_KEY=${{ secrets.VITE_FCM_API_KEY }}
+          VITE_FCM_SENDER_ID=${{ secrets.VITE_FCM_SENDER_ID }}
+          VITE_FCM_VAPID_KEY=${{ secrets.VITE_FCM_VAPID_KEY }}
           EOF
+
+      # Push is a silent-failure feature: a missing FCM value disables it with
+      # only a console warning, so a released build would ship without
+      # notifications and nothing would fail. Surface it in the build log.
+      - name: Warn if FCM config is incomplete
+        shell: bash
+        run: |
+          missing=""
+          for key in VITE_FCM_PROJECT_ID VITE_FCM_APP_ID VITE_FCM_API_KEY \
+                     VITE_FCM_SENDER_ID VITE_FCM_VAPID_KEY; do
+            grep -q "^${key}=." .env || missing="${missing} ${key}"
+          done
+          if [ -n "${missing}" ]; then
+            echo "::warning::Push notifications disabled in this build; missing secrets:${missing}"
+          else
+            echo "FCM config complete — push notifications enabled."
+          fi
 
       - name: Build player page
         run: npm run build:player
