@@ -38,12 +38,10 @@ import { FlatSettingsMenu } from './FlatSettingsMenu';
 import { QualityMenu } from './QualityMenu';
 import { SpeedMenu } from './SpeedMenu';
 import { SubmenuProvider, t } from './GlassMenu';
-import { postToParent } from '../hooks/useParentMessages';
 import { turkishTranslations } from './translations';
 import './GlassControls.css';
 
 interface GlassControlsProps {
-  hasNext: boolean;
   announcements: boolean;
   onAnnouncementsChange: (enabled: boolean) => void;
   enhancement: {
@@ -114,22 +112,6 @@ function SettingsMenu({
         </Menu.Items>
       </div>
     </Menu.Root>
-  );
-}
-
-/** Blue next-episode pill (replaces the old side arrows). */
-function NextEpisodePill() {
-  return (
-    <button
-      className="glass-next-pill"
-      aria-label="Sonraki bölüm"
-      onClick={() => postToParent('next')}
-    >
-      <span>Sonraki Bölüm</span>
-      <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
-        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-      </svg>
-    </button>
   );
 }
 
@@ -359,7 +341,7 @@ function SeekGestures() {
   );
 }
 
-export function GlassControls({ hasNext, announcements, onAnnouncementsChange, enhancement }: GlassControlsProps) {
+export function GlassControls({ announcements, onAnnouncementsChange, enhancement }: GlassControlsProps) {
   useKeyboardShortcuts();
   const live = useMediaState('live');
   // React-driven fullscreen hook for the bar lift: vidstack also reflects
@@ -440,8 +422,6 @@ export function GlassControls({ hasNext, announcements, onAnnouncementsChange, e
           {!live && <GlassTitle />}
 
           <div className="glass-spacer" />
-
-          {!live && hasNext && <NextEpisodePill />}
 
           <SettingsMenu announcements={announcements} onAnnouncementsChange={onAnnouncementsChange}>
             <GlassPipButton />

@@ -511,7 +511,6 @@ export function EmbedPlayer() {
         />
 
         <GlassControls
-          hasNext={navInfo?.hasNext ?? false}
           announcements={announcements}
           onAnnouncementsChange={setAnnouncements}
           enhancement={{
