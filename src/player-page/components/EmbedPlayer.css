@@ -279,6 +279,9 @@
   bottom: 0;
   background: #1a9fff;
   pointer-events: none;
+  /* timeupdate ticks ~4Hz; interpolate between them so the drain glides
+     instead of stepping once per second. */
+  transition: width 0.3s linear;
 }
 
 .next-countdown-label,

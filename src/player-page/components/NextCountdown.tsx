@@ -4,7 +4,7 @@ import type { SkipMeta } from '../types';
 import { postToParent } from '../hooks/useParentMessages';
 
 /** Countdown length in seconds, started when the outro begins. */
-const COUNTDOWN_SECONDS = 5;
+const COUNTDOWN_SECONDS = 8;
 
 /* Minimal external store so SkipButton can stand down while the countdown
    owns the outro (intro and outro never overlap, so a boolean suffices). */
@@ -35,7 +35,7 @@ interface Props {
 
 /**
  * "Next episode in N seconds" pill shown when the outro starts. Counts
- * 5→1 with a blue fill draining right-to-left, then advances. X cancels
+ * 8→1 with a blue fill draining right-to-left, then advances. X cancels
  * for this outro pass; clicking the pill advances immediately.
  */
 export function NextCountdown({ meta, hasNext }: Props) {
@@ -103,7 +103,9 @@ export function NextCountdown({ meta, hasNext }: Props) {
   }, [currentTime, startedAt]);
 
   if (startedAt === null) return null;
-  const remaining = Math.max(0, Math.ceil(COUNTDOWN_SECONDS - (currentTime - startedAt)));
+  // Fractional for the fill (smooth drain), ceiled for the label.
+  const remainingFloat = Math.max(0, COUNTDOWN_SECONDS - (currentTime - startedAt));
+  const remaining = Math.max(1, Math.ceil(remainingFloat));
 
   return (
     <div className="next-countdown" role="group" aria-label="Sonraki bölüm geri sayımı">
@@ -130,7 +132,7 @@ export function NextCountdown({ meta, hasNext }: Props) {
           postToParent('next');
         }}
       >
-        <span className="next-countdown-fill" style={{ width: `${(remaining / COUNTDOWN_SECONDS) * 100}%` }} />
+        <span className="next-countdown-fill" style={{ width: `${(remainingFloat / COUNTDOWN_SECONDS) * 100}%` }} />
         <span className="next-countdown-label">{remaining} Saniye içinde sonraki bölüm</span>
         <svg
           className="next-countdown-icon"
