@@ -1,5 +1,7 @@
+import { useSyncExternalStore } from 'react';
 import { useMediaPlayer, useMediaState } from '@vidstack/react';
 import type { SkipMeta } from '../types';
+import { getCountdownVisible, subscribeCountdown } from './NextCountdown';
 
 interface SkipButtonProps {
   meta: SkipMeta | null;
@@ -8,8 +10,11 @@ interface SkipButtonProps {
 export function SkipButton({ meta }: SkipButtonProps) {
   const player = useMediaPlayer();
   const currentTime = useMediaState('currentTime');
+  // The outro countdown owns the outro while visible — stand down so the
+  // two never stack on the same corner.
+  const countdownActive = useSyncExternalStore(subscribeCountdown, getCountdownVisible);
 
-  if (!meta || !player) return null;
+  if (!meta || !player || countdownActive) return null;
 
   let targetTime: number | null = null;
 

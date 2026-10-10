@@ -12,6 +12,7 @@ import {
 import { GlassControls } from './GlassControls';
 import { useAnnouncementsPref } from './playerPrefs';
 import { SkipButton } from './SkipButton';
+import { NextCountdown } from './NextCountdown';
 import { MusicInfo } from './MusicInfo';
 import { useVideoData } from '../hooks/useVideoData';
 import { useParentMessages, postToParent } from '../hooks/useParentMessages';
@@ -525,6 +526,7 @@ export function EmbedPlayer() {
           }}
         />
         <SkipButton meta={meta} />
+        <NextCountdown meta={meta} hasNext={navInfo?.hasNext ?? false} />
         <MusicInfo meta={meta} />
       </MediaPlayer>
 
