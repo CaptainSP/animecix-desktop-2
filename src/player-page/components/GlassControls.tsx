@@ -284,7 +284,9 @@ function useKeyboardShortcuts() {
  * press lands on this container div, which the Gesture trigger does not
  * accept, so it never fires here. Toggle directly and ignore presses that
  * start on real controls. Double-click seeks ∓10s on the outer thirds and
- * toggles fullscreen in the middle third.
+ * toggles fullscreen in the middle third (entering also resumes: the two
+ * pointerups of a double-click would otherwise leave a paused video
+ * paused behind the fullscreen switch).
  */
 function SeekGestures() {
   const player = useMediaPlayer();
@@ -332,7 +334,10 @@ function SeekGestures() {
     } else if (fullscreen) {
       remote.exitFullscreen();
     } else {
+      // Small (windowed) screen: center double-click enters fullscreen and
+      // keeps playing.
       remote.requestFullscreen();
+      if (player.state.paused) player.play().catch(() => {});
     }
   };
 
