@@ -55,11 +55,11 @@
    scrim background) stays glued to the viewport edge while slider +
    pills ride up. (Padding declarations on this bar do not take effect
    in fullscreen in this Chromium build — measured 0px despite matching
-   rules — while offset and margin do.) Base row margin is 3px, so 8px
-   here = the same 3px + 5px extra in fullscreen. */
+   rules — while offset and margin do.) Base row margin is 3px, so 13px
+   here = the same 3px + 10px extra in fullscreen. */
 
 .glass-controls.glass-is-fullscreen .glass-button-row {
-  margin-bottom: 8px;
+  margin-bottom: 13px;
 }
 
 /* ── Settings + enhancement live inside the right pill ──────────
