@@ -313,11 +313,13 @@ function SeekGestures() {
     } else if (ratio > 0.65) {
       player.currentTime = Math.min(duration || 0, player.currentTime + 10);
     } else if (fullscreen) {
-      remote.exitFullscreen();
+      remote.exitFullscreen('prefer-media', event);
     } else {
-      // Small (windowed) screen: center double-click enters fullscreen and
-      // keeps playing.
-      remote.requestFullscreen();
+      // Mirror FullscreenButton: the trigger event MUST be forwarded — the
+      // legacy argless requestFullscreen() loses the user gesture in the
+      // request queue and fails silently (verified live: dblclick reached
+      // the handler, no error, no fullscreen).
+      remote.enterFullscreen('prefer-media', event);
       if (player.state.paused) player.play().catch(() => {});
     }
   };
