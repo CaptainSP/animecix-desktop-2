@@ -3,7 +3,9 @@
   bottom: 0;
   left: 0;
   margin-left: clamp(14px, 2vw, 28px);
-  margin-bottom: clamp(88px, 12vh, 124px);
+  /* Clears the seek slider plus its hover tooltip: slider top sits ~97px
+     off the bottom in windowed mode, tooltip ~30px above that. */
+  margin-bottom: clamp(140px, 18vh, 176px);
   pointer-events: auto;
   z-index: 999998;
   display: flex;
