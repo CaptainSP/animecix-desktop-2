@@ -213,11 +213,10 @@
   transform: translateY(0);
 }
 
-/* ── Next-episode countdown (outro) ──────────────────────────
+/* ── Next-episode prompt (outro) ─────────────────────────────
    Sits exactly where the skip button sits (it stands down while the
-   countdown is visible). Blue fill drains right-to-left over the
-   pill-dark base as the seconds tick down; X cancels for this pass,
-   the pill itself jumps immediately. */
+   prompt is visible). Solid blue pill + cancel button; the pill jumps
+   to the next episode on click, X dismisses it for this outro pass. */
 
 .next-countdown {
   position: absolute;
@@ -254,34 +253,27 @@
 }
 
 .next-countdown-pill {
-  position: relative;
-  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: 10px;
   border: none;
   border-radius: 999px;
   padding: 10px 18px;
-  background-color: rgba(8, 10, 14, 0.62);
+  background: #1a9fff;
   color: #fff;
   font-family: Inter, "Helvetica Neue", sans-serif;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-.next-countdown-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: #1a9fff;
-  pointer-events: none;
-  /* timeupdate ticks ~4Hz; interpolate between them so the drain glides
-     instead of stepping once per second. */
-  transition: width 0.3s linear;
+.next-countdown-pill:hover {
+  background: #33adff;
+}
+
+.next-countdown-pill:active {
+  transform: scale(0.96);
 }
 
 .next-countdown-label,

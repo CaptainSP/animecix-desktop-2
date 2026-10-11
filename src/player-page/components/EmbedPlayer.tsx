@@ -262,6 +262,15 @@ export function EmbedPlayer() {
     liveCallbacks
   );
 
+  // Ask the site for episode navigation info when the episode data is in
+  // but nav info never arrived (e.g. session restore, where the site's
+  // one-shot navigationInfo post can predate the player mount). The outro
+  // prompt needs hasNext; without an answer it simply stays hidden, so
+  // this is a no-op for sites that don't handle the request yet.
+  useEffect(() => {
+    if (meta && !navInfo) postToParent('getNavigationInfo');
+  }, [meta, navInfo]);
+
   // Report caption changes to parent (when user manually changes subtitles in player UI)
   // This triggers animecix.tv to persist the preference to SQLite via IPC
   useEffect(() => {

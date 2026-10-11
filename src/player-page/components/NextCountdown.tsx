@@ -3,10 +3,7 @@ import { useMediaState } from '@vidstack/react';
 import type { SkipMeta } from '../types';
 import { postToParent } from '../hooks/useParentMessages';
 
-/** Countdown length in seconds, started when the outro begins. */
-const COUNTDOWN_SECONDS = 8;
-
-/* Minimal external store so SkipButton can stand down while the countdown
+/* Minimal external store so SkipButton can stand down while the prompt
    owns the outro (intro and outro never overlap, so a boolean suffices). */
 let countdownVisible = false;
 const listeners = new Set<() => void>();
@@ -34,14 +31,14 @@ interface Props {
 }
 
 /**
- * "Next episode in N seconds" pill shown when the outro starts. Counts
- * 8→1 with a blue fill draining right-to-left, then advances. X cancels
- * for this outro pass; clicking the pill advances immediately.
+ * "Sonraki Bölüme Geç" prompt shown during the outro (no auto-advance, no
+ * timer): the pill jumps to the next episode on click, X dismisses it for
+ * this outro pass. Appears whenever the playhead is inside the outro range
+ * with a next episode available.
  */
 export function NextCountdown({ meta, hasNext }: Props) {
   const currentTime = useMediaState('currentTime');
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const prevTimeRef = useRef(0);
+  const [visible, setVisible] = useState(false);
   const dismissedRef = useRef(false);
   const firedRef = useRef(false);
 
@@ -56,65 +53,42 @@ export function NextCountdown({ meta, hasNext }: Props) {
   useEffect(() => {
     dismissedRef.current = false;
     firedRef.current = false;
-    prevTimeRef.current = 0;
-    setStartedAt(null);
+    setVisible(false);
     setCountdownVisible(false);
     return () => {
       setCountdownVisible(false);
     };
   }, [outroKey, hasNext]);
 
-  // Arm when the playhead crosses into the first seconds of the outro.
-  // Seeking far past the window (or starting inside it) never triggers —
-  // the countdown only fires on arrival, and X/the advance consumes it.
+  // Show while inside the outro zone; leaving it backward hides and re-arms
+  // so coming back shows the prompt again.
   useEffect(() => {
     if (!outro || !hasNext) return;
-    const prev = prevTimeRef.current;
-    prevTimeRef.current = currentTime;
     if (currentTime < outro.from - 1) {
       dismissedRef.current = false;
-      firedRef.current = false;
-      if (startedAt !== null) {
-        setStartedAt(null);
+      if (visible) {
+        setVisible(false);
         setCountdownVisible(false);
       }
       return;
     }
-    if (dismissedRef.current || firedRef.current || startedAt !== null) return;
-    if (
-      prev < outro.from &&
-      currentTime >= outro.from &&
-      currentTime - outro.from <= COUNTDOWN_SECONDS
-    ) {
-      setStartedAt(currentTime);
+    if (dismissedRef.current || firedRef.current || visible) return;
+    if (currentTime >= outro.from) {
+      setVisible(true);
       setCountdownVisible(true);
     }
-  }, [currentTime, outro, hasNext, startedAt]);
+  }, [currentTime, outro, hasNext, visible]);
 
-  // Fire exactly once when the countdown runs out. currentTime only moves
-  // while playing, so pausing freezes the countdown for free.
-  useEffect(() => {
-    if (startedAt === null || firedRef.current) return;
-    if (COUNTDOWN_SECONDS - (currentTime - startedAt) <= 0) {
-      firedRef.current = true;
-      setCountdownVisible(false);
-      postToParent('next');
-    }
-  }, [currentTime, startedAt]);
-
-  if (startedAt === null) return null;
-  // Fractional for the fill (smooth drain), ceiled for the label.
-  const remainingFloat = Math.max(0, COUNTDOWN_SECONDS - (currentTime - startedAt));
-  const remaining = Math.max(1, Math.ceil(remainingFloat));
+  if (!visible) return null;
 
   return (
-    <div className="next-countdown" role="group" aria-label="Sonraki bölüm geri sayımı">
+    <div className="next-countdown" role="group" aria-label="Sonraki bölüme geç">
       <button
         className="next-countdown-cancel"
-        aria-label="Geri sayımı iptal et"
+        aria-label="Kapat"
         onClick={() => {
           dismissedRef.current = true;
-          setStartedAt(null);
+          setVisible(false);
           setCountdownVisible(false);
         }}
       >
@@ -127,13 +101,12 @@ export function NextCountdown({ meta, hasNext }: Props) {
         aria-label="Sonraki bölüme geç"
         onClick={() => {
           firedRef.current = true;
-          setStartedAt(null);
+          setVisible(false);
           setCountdownVisible(false);
           postToParent('next');
         }}
       >
-        <span className="next-countdown-fill" style={{ width: `${(remainingFloat / COUNTDOWN_SECONDS) * 100}%` }} />
-        <span className="next-countdown-label">{remaining} Saniye içinde sonraki bölüm</span>
+        <span className="next-countdown-label">Sonraki Bölüme Geç</span>
         <svg
           className="next-countdown-icon"
           viewBox="0 0 24 24"
