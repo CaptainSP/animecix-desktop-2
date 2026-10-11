@@ -154,25 +154,6 @@ function GlassPlayButton() {
   );
 }
 
-/** Big round resume button over the video while paused (blurred glass).
- * Mounted only while paused/ended, so it never intercepts surface presses
- * during playback. A plain <button> is excluded from the SeekGestures
- * toggle, and PlayButton itself resumes exactly once. */
-function GlassCenterPlay() {
-  const paused = useMediaState('paused');
-  const ended = useMediaState('ended');
-  if (!paused && !ended) return null;
-  return (
-    <PlayButton className="glass-center-play" aria-label={ended ? t('Replay') : t('Play')}>
-      {ended ? (
-        <ReplayIcon className="vds-icon" />
-      ) : (
-        <PlayIcon className="vds-icon glass-center-play-icon" />
-      )}
-    </PlayButton>
-  );
-}
-
 /** Live volume readout at the right end of the expanding volume slider.
  * Decorative (the slider itself carries the aria label); muted reads 0. */
 function GlassVolumeValue() {
@@ -357,7 +338,6 @@ export function GlassControls({ announcements, onAnnouncementsChange, enhancemen
   return (
     <>
       <SeekGestures />
-      <GlassCenterPlay />
 
       <Captions className="vds-captions" />
 

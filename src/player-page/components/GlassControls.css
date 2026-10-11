@@ -834,68 +834,6 @@
   z-index: 0;
 }
 
-/* ── Center resume button (paused/ended only) ────────────────
-   Big round blurred glass disc over the video. Centred with inset +
-   margin (no transform — keeps the backdrop sampling trivially safe).
-   Mounted only while paused/ended, so it never steals surface presses
-   during playback. Uses the independent `scale` property for the
-   pop-in/hover so no `transform` ever touches this subtree. */
-
-.glass-center-play {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 92px;
-  height: 92px;
-  z-index: 15;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background-color: rgba(8, 10, 14, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: #fff;
-  cursor: pointer;
-  animation: glass-center-pop 0.22s ease;
-}
-
-.glass-center-play:hover {
-  background-color: rgba(20, 26, 34, 0.68);
-  scale: 1.06;
-}
-
-.glass-center-play:active {
-  scale: 0.96;
-}
-
-.glass-center-play .vds-icon {
-  width: 38px;
-  height: 38px;
-}
-
-/* The play triangle's glyph box sits ~2px right of its svg box centre
- * (measured live via path.getBBox vs button rect) — nudge the icon, not
- * the disc. Independent `translate` keeps layout centring exact and
- * touches no `transform`. The symmetric replay icon needs no correction. */
-.glass-center-play .glass-center-play-icon {
-  translate: -2px 0;
-}
-
-@keyframes glass-center-pop {
-  from {
-    opacity: 0;
-    scale: 0.82;
-  }
-}
-
-@media (prefers-reduced-motion) {
-  .glass-center-play {
-    animation: none;
-  }
-}
-
 /* ── Live mode: play/volume/clock pills and seekbar are hidden ─── */
 
 .live-mode .glass-time-slider,
