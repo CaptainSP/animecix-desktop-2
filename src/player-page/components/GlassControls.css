@@ -10,7 +10,7 @@
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding: 0 0 clamp(10px, 1.8vh, 18px);
   /* Gentle scrim confined to the bar area so the art stays visible. */
   background: linear-gradient(
