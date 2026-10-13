@@ -25,6 +25,18 @@ export function getCountdownVisible(): boolean {
   return countdownVisible;
 }
 
+/**
+ * Guards against nonsense outro markers (wrong API data): an outro must
+ * start after halftime and cover less than 40% of the episode. Unknown
+ * duration never hides — only positively absurd ranges are rejected.
+ */
+export function isPlausibleOutro(from: number, to: number, duration: number): boolean {
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return false;
+  if (from <= 0 || to <= from) return false;
+  if (!Number.isFinite(duration) || duration <= 0) return true;
+  return from / duration > 0.5 && (to - from) / duration < 0.4;
+}
+
 interface Props {
   meta: SkipMeta | null;
   hasNext: boolean;
@@ -38,6 +50,7 @@ interface Props {
  */
 export function NextCountdown({ meta, hasNext }: Props) {
   const currentTime = useMediaState('currentTime');
+  const duration = useMediaState('duration');
   const [visible, setVisible] = useState(false);
   const dismissedRef = useRef(false);
   const firedRef = useRef(false);
@@ -48,6 +61,8 @@ export function NextCountdown({ meta, hasNext }: Props) {
       ? { from: raw.from, to: raw.to }
       : null;
   const outroKey = outro ? `${outro.from}-${outro.to}` : 'none';
+  // Absurd API ranges never surface (see isPlausibleOutro).
+  const saneOutro = outro && isPlausibleOutro(outro.from, outro.to, duration) ? outro : null;
 
   // New episode (or hasNext flip): re-arm everything.
   useEffect(() => {
@@ -63,9 +78,10 @@ export function NextCountdown({ meta, hasNext }: Props) {
   // Show while inside the outro zone; leaving it backward hides and re-arms
   // so coming back shows the prompt again.
   useEffect(() => {
-    if (!outro || !hasNext) return;
-    if (currentTime < outro.from - 1) {
+    if (!saneOutro || !hasNext) return;
+    if (currentTime < saneOutro.from - 1) {
       dismissedRef.current = false;
+      firedRef.current = false;
       if (visible) {
         setVisible(false);
         setCountdownVisible(false);
@@ -73,11 +89,11 @@ export function NextCountdown({ meta, hasNext }: Props) {
       return;
     }
     if (dismissedRef.current || firedRef.current || visible) return;
-    if (currentTime >= outro.from) {
+    if (currentTime >= saneOutro.from) {
       setVisible(true);
       setCountdownVisible(true);
     }
-  }, [currentTime, outro, hasNext, visible]);
+  }, [currentTime, saneOutro, hasNext, visible]);
 
   if (!visible) return null;
 

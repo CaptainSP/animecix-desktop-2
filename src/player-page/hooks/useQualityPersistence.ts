@@ -67,6 +67,18 @@ export function saveQuality(quality: QualityLike | null): void {
 }
 
 /**
+ * Bumped every time the viewer picks a quality by hand (see QualityMenu).
+ * A restore polling in the background must never override a newer manual
+ * pick: if the quality list arrives late (slow manifest) the poll would
+ * otherwise stamp the saved/default value over what the viewer just chose.
+ */
+let manualPickEpoch = 0;
+
+export function markManualQualityPick(): void {
+  manualPickEpoch += 1;
+}
+
+/**
  * Picks the available quality closest to the saved preference, mirroring
  * Vidstack's own matching (minimize width + height + bitrate distance).
  * Returns null for an empty list.
@@ -133,10 +145,14 @@ export function useQualityPersistence(
     if (!sourcesSignature) return;
 
     const sourceUrls = new Set(sourcesSignature.split('|'));
+    // Picks made after this effect started win over the restore.
+    const epoch = manualPickEpoch;
     let attempts = 0;
     let timer: ReturnType<typeof setInterval> | null = null;
 
     const tryRestore = (): boolean => {
+      // A newer manual pick landed while polling — stop and leave it alone.
+      if (manualPickEpoch !== epoch) return true;
       // useVideoData sets `data` before it clears `loading` (that waits on the
       // skip-marker fetch), so the player is usually not mounted yet when this
       // first runs. Giving up here meant the restore never happened on a fresh

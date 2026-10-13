@@ -1,6 +1,6 @@
 import { useMediaContext, useMediaState } from '@vidstack/react';
 import { ComputerIcon } from '@vidstack/react/icons';
-import { saveQuality } from '../hooks/useQualityPersistence';
+import { saveQuality, markManualQualityPick } from '../hooks/useQualityPersistence';
 import { SettingsRadioGroup, SidePanel, SubmenuTrigger, t } from './GlassMenu';
 
 interface QualityLike {
@@ -82,8 +82,11 @@ export function QualityMenu() {
   const currentLabel = currentValue === 'auto' ? autoWord : `${currentValue}p`;
 
   // The only place the preference is written: a viewer's pick, never an
-  // automatic switch or a revert (see useQualityPersistence).
+  // automatic switch or a revert (see useQualityPersistence). Any pick —
+  // including back to Auto — also shields itself from a restore that is
+  // still polling for a late quality list.
   const onSelect = (value: string) => {
+    markManualQualityPick();
     if (value === 'auto') {
       saveQuality(null);
       remote.requestAutoQuality();
