@@ -52,8 +52,32 @@ import { registerNotificationsIpc } from './notifications/notifications.ipc';
 // notably on hybrid NVIDIA + AMD laptops. --no-zygote also went away with it:
 // it only papered over the Vulkan failure while weakening the sandbox.
 // Vulkan stays opt-in for the video-enhancement pipeline via ANIME4K_VULKAN=1.
+//
+// Native Wayland + NVIDIA proprietary + fractional scaling still produces
+// compositor artifacts in the field (ghosting/smearing, duplicated cursor),
+// where XWayland stays clean — so NVIDIA machines default to X11.
+// Override with ANIMECIX_OZONE=x11|wayland|auto when you know better.
+function hasNvidiaGPU(): boolean {
+  try {
+    return (
+      existsSync('/proc/driver/nvidia/version') || existsSync('/dev/nvidia0')
+    );
+  } catch {
+    return false;
+  }
+}
 if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  const ozoneOverride = process.env.ANIMECIX_OZONE;
+  const forceX11 =
+    ozoneOverride === 'x11' ||
+    (!ozoneOverride && !!process.env.WAYLAND_DISPLAY && hasNvidiaGPU());
+  if (forceX11) {
+    app.commandLine.appendSwitch('ozone-platform', 'x11');
+  } else if (ozoneOverride !== 'wayland') {
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  } else {
+    app.commandLine.appendSwitch('ozone-platform', 'wayland');
+  }
   if (process.env.ANIME4K_VULKAN === '1') {
     app.commandLine.appendSwitch('enable-features', 'Vulkan,VulkanFromANGLE,WebGPU');
     // Unsafe flag still required on Linux — not stable/default yet
