@@ -64,12 +64,19 @@ const api: AnimecixAPI = {
   fetchVideoData: (id: string, vid?: string) => ipcRenderer.invoke('video:fetch', id, vid),
 
   // Converts a tau-video.xyz embed URL to the local player URL.
-  // Prefers http://tau-player.localhost:PORT (WebGPU support) with tau-player:// fallback.
+  // Prefers https://tau-player.localhost:TLS_PORT (mixed-content safe: no
+  // http→https upgrade dance, and the bundled cert is allowlisted for this
+  // host), falls back to plain http://tau-player.localhost:PORT (still
+  // served; upgrades redirect), then tau-player:// bundle.
   getPlayerUrl: (embedUrl: string): string | null => {
     try {
       const parsed = new URL(embedUrl);
       if (parsed.hostname === import.meta.env.VITE_CDN_DOMAIN && (parsed.pathname.startsWith('/embed/') || parsed.pathname.startsWith('/embed-2/'))) {
         const playerPath = appendPlayerCacheBust(parsed.pathname, parsed.search);
+        const tlsPort = (window as any).__tauPlayerTlsPort;
+        if (tlsPort) {
+          return `https://tau-player.localhost:${tlsPort}${playerPath}`;
+        }
         const port = (window as any).__tauPlayerPort;
         if (port) {
           return `http://tau-player.localhost:${port}${playerPath}`;
