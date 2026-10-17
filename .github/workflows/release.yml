@@ -11,7 +11,7 @@ permissions:
 # Workflow-level env. Flip SKIP_NOTARIZE back to 'false' (or remove it)
 # once Apple has configured the team for notarization (pending support ticket).
 env:
-  SKIP_NOTARIZE: 'true'
+  SKIP_NOTARIZE: 'false'
   VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
   VITE_CDN_DOMAIN: ${{ secrets.VITE_CDN_DOMAIN }}
   VITE_SITE_URL: ${{ secrets.VITE_SITE_URL }}
