@@ -239,4 +239,135 @@ describe('Downloader download', () => {
     downloader.pause();
     await paused;
   });
+
+  function makeChunks(threads: number, bytesDownloaded = 0) {
+    return Downloader.splitIntoChunks(testData.length, threads).map((c, i) => ({
+      downloadId: 'test-dl',
+      chunkIndex: i,
+      byteStart: c.start,
+      byteEnd: c.end,
+      bytesDownloaded,
+      tempPath: path.join(tmpDir, `chunk-${i}.part`),
+      completed: false,
+    }));
+  }
+
+  function run(downloader: Downloader): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      downloader.on('complete', resolve);
+      downloader.on('error', reject);
+      downloader.start();
+    });
+  }
+
+  it('resumes correctly when the part file is ahead of the stored progress', async () => {
+    // Progress is persisted every ~1 MB, so after a pause the file holds more
+    // bytes than the database says. Appending from the stored offset used to
+    // duplicate those bytes.
+    const chunks = makeChunks(2, 100);
+    fs.writeFileSync(chunks[0].tempPath, testData.subarray(0, 700));
+    fs.writeFileSync(chunks[1].tempPath, testData.subarray(2000, 2300));
+    const outputPath = path.join(tmpDir, 'output.mp4');
+
+    await run(new Downloader(`http://127.0.0.1:${port}/file.mp4`, outputPath, chunks, makeMockStorage()));
+
+    expect(fs.readFileSync(outputPath).equals(testData)).toBe(true);
+  });
+
+  it('ignores a leftover part file from an earlier attempt', async () => {
+    const chunks = makeChunks(2, 0);
+    fs.writeFileSync(chunks[0].tempPath, 'garbage from an older download');
+    const outputPath = path.join(tmpDir, 'output.mp4');
+
+    await run(new Downloader(`http://127.0.0.1:${port}/file.mp4`, outputPath, chunks, makeMockStorage()));
+
+    expect(fs.readFileSync(outputPath).equals(testData)).toBe(true);
+  });
+
+  it('reopens a chunk marked complete whose part file is short', async () => {
+    const chunks = makeChunks(2, 0).map((c) => ({ ...c, completed: true, bytesDownloaded: 2000 }));
+    fs.writeFileSync(chunks[0].tempPath, testData.subarray(0, 2000));
+    fs.writeFileSync(chunks[1].tempPath, testData.subarray(2000, 2500));
+    const outputPath = path.join(tmpDir, 'output.mp4');
+
+    await run(new Downloader(`http://127.0.0.1:${port}/file.mp4`, outputPath, chunks, makeMockStorage()));
+
+    expect(fs.readFileSync(outputPath).equals(testData)).toBe(true);
+  });
+
+  it('fails instead of corrupting the file when the server ignores Range', async () => {
+    const noRange = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Length': testData.length });
+      res.end(testData);
+    });
+    await new Promise<void>((resolve) => noRange.listen(0, resolve));
+    const noRangePort = (noRange.address() as { port: number }).port;
+
+    try {
+      const outputPath = path.join(tmpDir, 'output.mp4');
+      const downloader = new Downloader(
+        `http://127.0.0.1:${noRangePort}/file.mp4`,
+        outputPath,
+        makeChunks(2),
+        makeMockStorage(),
+      );
+      await expect(run(downloader)).rejects.toThrow('HTTP 200');
+      expect(fs.existsSync(outputPath)).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => noRange.close(() => resolve()));
+    }
+  });
+
+  it('emits a single error and stops sibling chunks when one chunk fails', async () => {
+    const flaky = http.createServer((req, res) => {
+      const match = (req.headers.range ?? '').match(/bytes=(\d+)-(\d+)/);
+      const start = match ? parseInt(match[1], 10) : 0;
+      if (start === 0) {
+        res.writeHead(500);
+        res.end();
+        return;
+      }
+      const end = match ? parseInt(match[2], 10) : testData.length - 1;
+      res.writeHead(206, { 'Content-Length': end - start + 1 });
+      res.write(testData.subarray(start, start + 10));
+      // never finishes — must be aborted by the failing sibling
+    });
+    await new Promise<void>((resolve) => flaky.listen(0, resolve));
+    const flakyPort = (flaky.address() as { port: number }).port;
+
+    try {
+      const downloader = new Downloader(
+        `http://127.0.0.1:${flakyPort}/file.mp4`,
+        path.join(tmpDir, 'output.mp4'),
+        makeChunks(4),
+        makeMockStorage(),
+      );
+      const errors: Error[] = [];
+      downloader.on('error', (e: Error) => errors.push(e));
+      downloader.start();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('HTTP 500');
+      expect((downloader as any).activeRequests).toHaveLength(0);
+    } finally {
+      flaky.closeAllConnections();
+      await new Promise<void>((resolve) => flaky.close(() => resolve()));
+    }
+  });
+
+  it('refuses to merge when a part file is short', async () => {
+    const chunks = makeChunks(2).map((c) => ({ ...c, completed: true }));
+    fs.writeFileSync(chunks[0].tempPath, testData.subarray(0, 2000));
+    fs.writeFileSync(chunks[1].tempPath, testData.subarray(2000, 2100));
+    const downloader = new Downloader(
+      `http://127.0.0.1:${port}/file.mp4`,
+      path.join(tmpDir, 'output.mp4'),
+      chunks,
+      makeMockStorage(),
+    );
+
+    await expect(downloader.mergeChunks()).rejects.toThrow('Chunk 1 has 100 bytes');
+    expect(fs.existsSync(chunks[1].tempPath)).toBe(true);
+  });
 });

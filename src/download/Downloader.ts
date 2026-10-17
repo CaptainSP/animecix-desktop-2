@@ -17,6 +17,8 @@ export class Downloader extends EventEmitter {
   private storage: StorageService;
   private activeRequests: http.ClientRequest[] = [];
   private isPaused = false;
+  /** Set once a chunk fails so sibling chunks stop and 'error' fires only once. */
+  private hasFailed = false;
   private speedSamples: { time: number; bytes: number }[] = [];
 
   constructor(
@@ -59,6 +61,7 @@ export class Downloader extends EventEmitter {
 
   start(): void {
     this.isPaused = false;
+    this.hasFailed = false;
     this.activeRequests = [];
 
     try {
@@ -66,6 +69,14 @@ export class Downloader extends EventEmitter {
     } catch (err) {
       this.emit('error', err);
       return;
+    }
+
+    // A chunk marked complete whose part file is short (killed mid-write, or
+    // removed) would fail the merge on every retry; reopen it instead.
+    for (const chunk of this.chunks) {
+      if (chunk.completed && !this.partFileIsComplete(chunk)) {
+        chunk.completed = false;
+      }
     }
 
     const incompleteChunks = this.chunks.filter((c) => !c.completed);
@@ -89,21 +100,71 @@ export class Downloader extends EventEmitter {
               .catch((err) => this.emit('error', err));
           }
         })
-        .catch((err) => {
-          if (!this.isPaused) {
-            this.emit('error', err);
-          }
-        });
+        .catch((err) => this.fail(err));
     }
   }
 
   pause(): void {
     this.isPaused = true;
+    this.abortRequests();
+    this.emit('paused');
+  }
+
+  /**
+   * Without this, the remaining chunks kept downloading after one failed while
+   * the queue had already marked the item failed and started the next one —
+   * two downloads writing at once, and stale writers holding .part files open.
+   */
+  private fail(err: Error): void {
+    if (this.isPaused || this.hasFailed) return;
+    this.hasFailed = true;
+    this.abortRequests();
+    this.emit('error', err);
+  }
+
+  private abortRequests(): void {
     for (const req of this.activeRequests) {
       req.destroy();
     }
     this.activeRequests = [];
-    this.emit('paused');
+  }
+
+  private get totalBytes(): number {
+    return this.chunks.reduce((sum, c) => sum + (c.byteEnd - c.byteStart + 1), 0);
+  }
+
+  private partFileIsComplete(chunk: ChunkState): boolean {
+    try {
+      return fs.statSync(chunk.tempPath).size === chunk.byteEnd - chunk.byteStart + 1;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Makes the .part file and bytesDownloaded agree before resuming.
+   *
+   * Progress is persisted only every PROGRESS_PERSIST_INTERVAL, so after a
+   * pause/crash the file is usually longer than the stored count. Appending
+   * from the stored offset then duplicated up to 1 MB per chunk and produced a
+   * corrupt video. The stored count is the safe point (every byte before it
+   * was received), so a longer file is truncated to it; a shorter file (write
+   * not flushed) wins instead. A leftover file from an older attempt with a
+   * stored count of 0 is truncated to empty.
+   */
+  private syncChunkWithFile(chunk: ChunkState): void {
+    let fileSize = 0;
+    try {
+      fileSize = fs.statSync(chunk.tempPath).size;
+    } catch {
+      /* no part file yet */
+    }
+    const chunkLength = chunk.byteEnd - chunk.byteStart + 1;
+    const safeBytes = Math.min(chunk.bytesDownloaded, fileSize, chunkLength);
+    if (fileSize > safeBytes) {
+      fs.truncateSync(chunk.tempPath, safeBytes);
+    }
+    chunk.bytesDownloaded = safeBytes;
   }
 
   resume(): void {
@@ -115,6 +176,15 @@ export class Downloader extends EventEmitter {
       if (this.isPaused) {
         reject(new Error('Download paused'));
         return;
+      }
+
+      if (redirectCount === 0) {
+        try {
+          this.syncChunkWithFile(chunk);
+        } catch (err) {
+          reject(err as Error);
+          return;
+        }
       }
 
       const rangeStart = chunk.byteStart + chunk.bytesDownloaded;
@@ -162,14 +232,19 @@ export class Downloader extends EventEmitter {
                 reject(new Error(`Redirect to non-HTTPS URL: ${redirectParsed.protocol}`));
                 return;
               }
-              this.downloadChunk({ ...chunk }, redirectParsed.href, redirectCount + 1).then(resolve).catch(reject);
+              this.downloadChunk(chunk, redirectParsed.href, redirectCount + 1).then(resolve).catch(reject);
             } catch {
               reject(new Error('Invalid redirect URL'));
             }
             return;
           }
 
-          if (res.statusCode !== 206 && res.statusCode !== 200) {
+          // A 200 carries the whole file, which is only correct when the whole
+          // file was asked for; otherwise the server ignored Range and writing
+          // the body into this chunk would corrupt the merged video.
+          const isWholeFile = rangeStart === 0 && rangeEnd === this.totalBytes - 1;
+          if (res.statusCode !== 206 && !(res.statusCode === 200 && isWholeFile)) {
+            res.resume();
             reject(new Error(`HTTP ${res.statusCode} for chunk ${chunk.chunkIndex}`));
             return;
           }
@@ -177,10 +252,16 @@ export class Downloader extends EventEmitter {
           const writer = fs.createWriteStream(chunk.tempPath, { flags: 'a' });
           let bytesSinceLastPersist = 0;
 
+          // Release the file handle when the request is aborted (pause/cancel/
+          // sibling failure); on Windows an open handle blocks deleting the part.
+          res.on('close', () => {
+            if (!writer.writableEnded) writer.end();
+          });
+
           res.on('data', (data: Buffer) => {
-            if (this.isPaused) {
+            if (this.isPaused || this.hasFailed) {
               req.destroy();
-              writer.end();
+              if (!writer.writableEnded) writer.end();
               return;
             }
 
@@ -208,10 +289,7 @@ export class Downloader extends EventEmitter {
               (sum, c) => sum + c.bytesDownloaded,
               0,
             );
-            const totalBytes = this.chunks.reduce(
-              (sum, c) => sum + (c.byteEnd - c.byteStart + 1),
-              0,
-            );
+            const totalBytes = this.totalBytes;
             const speedBps = this.calculateSpeed();
 
             this.emit('progress', {
@@ -223,6 +301,18 @@ export class Downloader extends EventEmitter {
 
           res.on('end', () => {
             writer.end(() => {
+              if (this.isPaused || this.hasFailed) return;
+              if (chunk.byteStart + chunk.bytesDownloaded - 1 < chunk.byteEnd) {
+                // Connection closed early; persist what arrived so a retry resumes.
+                this.storage.updateChunkProgress(
+                  chunk.downloadId,
+                  chunk.chunkIndex,
+                  chunk.bytesDownloaded,
+                  false,
+                );
+                reject(new Error(`Chunk ${chunk.chunkIndex} ended early`));
+                return;
+              }
               chunk.completed = true;
               this.storage.updateChunkProgress(
                 chunk.downloadId,
@@ -244,7 +334,7 @@ export class Downloader extends EventEmitter {
       );
 
       req.on('error', (err) => {
-        if (!this.isPaused) {
+        if (!this.isPaused && !this.hasFailed) {
           reject(err);
         }
       });
@@ -265,10 +355,30 @@ export class Downloader extends EventEmitter {
 
   async mergeChunks(): Promise<void> {
     const sorted = [...this.chunks].sort((a, b) => a.chunkIndex - b.chunkIndex);
+    if (sorted.length === 0) {
+      throw new Error('Nothing to merge: download has no chunks');
+    }
+
+    // Refuse to produce a short/corrupt video (it used to show up in the
+    // library as a broken entry). Parts are kept so a retry can resume.
+    for (const chunk of sorted) {
+      const expected = chunk.byteEnd - chunk.byteStart + 1;
+      let actual = -1;
+      try {
+        actual = fs.statSync(chunk.tempPath).size;
+      } catch {
+        /* missing part — reported below */
+      }
+      if (actual !== expected) {
+        throw new Error(
+          `Chunk ${chunk.chunkIndex} has ${actual} bytes, expected ${expected}`,
+        );
+      }
+    }
+
     const output = fs.createWriteStream(this.outputPath);
 
     for (const chunk of sorted) {
-      if (!fs.existsSync(chunk.tempPath)) continue;
       const input = fs.createReadStream(chunk.tempPath);
       await pipeline(input, output, { end: false });
       fs.unlinkSync(chunk.tempPath);

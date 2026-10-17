@@ -4,6 +4,13 @@ import type { StorageService } from '../storage/StorageService';
 import type { DownloadQueueItem } from './download.types';
 
 /**
+ * download:start writes the library row before the queue row (poster fetch and
+ * HEAD request sit in between), so a fresh row without a queue entry is normal
+ * for a moment; only older ones are orphans.
+ */
+const ORPHAN_GRACE_SECONDS = 10 * 60;
+
+/**
  * Removes database records for downloads whose video file was manually deleted
  * from the downloads folder (e.g. via File Explorer while the app is running).
  * Without this, the library keeps showing the episode and offline playback
@@ -12,7 +19,9 @@ import type { DownloadQueueItem } from './download.types';
  * Two sources are checked:
  *   - download_queue rows with status 'completed' whose output file is gone;
  *   - episode_metadata rows with source 'download' whose video file is gone
- *     (covers legacy rows that lost their download_queue record).
+ *     (covers legacy rows that lost their download_queue record);
+ *   - episode_metadata rows with source 'download' that have no video file
+ *     and no download_queue row (orphans of a failed or cancelled enqueue).
  *
  * Cache rows (userData/cache) are intentionally untouched — only the user
  * downloads folder is user-managed.
@@ -27,6 +36,7 @@ export function pruneMissingDownloads(
   downloadsDir: string,
 ): number {
   let removed = 0;
+  const nowSeconds = Math.floor(Date.now() / 1000);
 
   for (const dl of storage.getAllDownloads()) {
     if (dl.status !== 'completed') continue;
@@ -39,7 +49,18 @@ export function pruneMissingDownloads(
   }
 
   for (const meta of storage.getAllEpisodeMetadata()) {
-    if (meta.source !== 'download' || !meta.videoPath) continue;
+    if (meta.source !== 'download') continue;
+    if (!meta.videoPath) {
+      // Orphan from an enqueue that failed or a download cancelled before the
+      // fix that cleans these up: no file and nothing queued to produce one.
+      // These showed as undeletable 0 MB library entries.
+      const isPastGrace = nowSeconds - meta.createdAt > ORPHAN_GRACE_SECONDS;
+      if (isPastGrace && !storage.getDownloadById(meta.episodeId)) {
+        storage.deleteEpisodeMetadata(meta.episodeId);
+        removed++;
+      }
+      continue;
+    }
     if (isMissingWithin(downloadsDir, meta.videoPath)) {
       removeMetadataSubtitleFiles(meta.subPaths);
       storage.deleteEpisodeMetadata(meta.episodeId);

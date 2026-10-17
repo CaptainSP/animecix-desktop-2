@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // Mock electron before importing DownloadQueue
 vi.mock('electron', () => ({
@@ -95,8 +98,10 @@ function createMockStorage() {
       chunks.delete(id);
     },
 
-    deleteEpisodeMetadata(_episodeId: string): void {
-      // no-op in mock
+    deletedMetadata: [] as string[],
+
+    deleteEpisodeMetadata(episodeId: string): void {
+      this.deletedMetadata.push(episodeId);
     },
   };
 }
@@ -259,5 +264,152 @@ describe('DownloadQueue', () => {
     expect(progress[0].id).toBeDefined();
     expect(progress[0]).toHaveProperty('progressPercent');
     expect(progress[0]).toHaveProperty('totalBytes');
+  });
+
+  describe('add() for an episode that already has a row', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dlq-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function seed(id: string, status: string, outputPath = path.join(tmpDir, `${id}.mp4`)) {
+      storage.enqueueDownload({
+        id,
+        episodeId: id,
+        title: id,
+        url: 'https://old.example.com/expired.mp4',
+        subUrls: '[]',
+        outputPath,
+        totalBytes: 1000,
+        chunks: [{ chunkIndex: 0, byteStart: 0, byteEnd: 999, tempPath: outputPath + '.part0' }],
+      });
+      storage.updateDownloadStatus(id, status);
+    }
+
+    function makeQueue(): DownloadQueue {
+      const queue = new DownloadQueue(storage as any, tmpDir);
+      (queue as any).getContentLength = async () => 2000;
+      // Keep the test offline: nothing should actually start downloading.
+      (queue as any).processNext = () => {};
+      return queue;
+    }
+
+    it.each(['paused', 'failed'])('re-enqueues a %s download with the fresh URL', async (status) => {
+      seed('ep-a', status);
+      fs.writeFileSync(path.join(tmpDir, 'ep-a.mp4.part0'), 'stale');
+      const queue = makeQueue();
+
+      await expect(
+        queue.add('ep-a', 'https://new.example.com/fresh.mp4', 'ep-a', []),
+      ).resolves.toBe('ep-a');
+
+      const dl = storage.getDownloadById('ep-a');
+      expect(dl?.status).toBe('queued');
+      expect(dl?.url).toBe('https://new.example.com/fresh.mp4');
+      expect(dl?.totalBytes).toBe(2000);
+      expect(fs.existsSync(path.join(tmpDir, 'ep-a.mp4.part0'))).toBe(false);
+    });
+
+    it('leaves a completed download whose file exists untouched', async () => {
+      seed('ep-b', 'completed');
+      fs.writeFileSync(path.join(tmpDir, 'ep-b.mp4'), 'video');
+      const queue = makeQueue();
+
+      await queue.add('ep-b', 'https://new.example.com/fresh.mp4', 'ep-b', []);
+
+      const dl = storage.getDownloadById('ep-b');
+      expect(dl?.status).toBe('completed');
+      expect(dl?.url).toBe('https://old.example.com/expired.mp4');
+    });
+
+    it('re-downloads a completed episode whose file was deleted', async () => {
+      seed('ep-c', 'completed');
+      const queue = makeQueue();
+
+      await queue.add('ep-c', 'https://new.example.com/fresh.mp4', 'ep-c', []);
+
+      expect(storage.getDownloadById('ep-c')?.status).toBe('queued');
+    });
+
+    it('rejects an unknown file size instead of creating an empty download', async () => {
+      const queue = makeQueue();
+      (queue as any).getContentLength = async () => 0;
+
+      await expect(
+        queue.add('ep-d', 'https://new.example.com/fresh.mp4', 'ep-d', []),
+      ).rejects.toThrow('Could not determine file size');
+      expect(storage.getDownloadById('ep-d')).toBeNull();
+    });
+  });
+
+  it('cancel removes the library entry of an unfinished download', () => {
+    storage.enqueueDownload({
+      id: 'cancel-meta',
+      episodeId: 'cancel-meta',
+      title: 'x',
+      url: 'https://example.com/x.mp4',
+      subUrls: '[]',
+      outputPath: '/tmp/cancel-meta.mp4',
+      totalBytes: 1000,
+      chunks: [],
+    });
+    storage.updateDownloadStatus('cancel-meta', 'paused');
+
+    const queue = new DownloadQueue(storage as any, '/tmp/nonexistent-dl-dir');
+    queue.cancel('cancel-meta');
+
+    expect(storage.deletedMetadata).toContain('cancel-meta');
+  });
+
+  function seedQueued(ids: string[]) {
+    ids.forEach((id, i) => {
+      storage.enqueueDownload({
+        id,
+        episodeId: id,
+        title: id,
+        url: 'https://example.com/' + id + '.mp4',
+        subUrls: '[]',
+        outputPath: '/tmp/' + id + '.mp4',
+        totalBytes: 1000,
+        chunks: [{ chunkIndex: 0, byteStart: 0, byteEnd: 999, tempPath: '/tmp/' + id + '.part0' }],
+      });
+      storage.downloads.get(id).created_at = i;
+    });
+  }
+
+  it('pausing the active download starts the next queued one', () => {
+    seedQueued(['first', 'second']);
+
+    const queue = new DownloadQueue(storage as any, '/tmp/nonexistent-dl-dir');
+    expect(storage.downloads.get('first').status).toBe('downloading');
+
+    queue.pause('first');
+
+    expect(storage.downloads.get('first').status).toBe('paused');
+    expect(storage.downloads.get('second').status).toBe('downloading');
+    queue.pauseAll();
+  });
+
+  it('pauseAll pauses everything without starting queued items', () => {
+    seedQueued(['p1', 'p2', 'p3']);
+    const started: string[] = [];
+    const origUpdate = storage.updateDownloadStatus.bind(storage);
+    storage.updateDownloadStatus = (id: string, status: string) => {
+      if (status === 'downloading') started.push(id);
+      origUpdate(id, status);
+    };
+
+    const queue = new DownloadQueue(storage as any, '/tmp/nonexistent-dl-dir');
+    queue.pauseAll();
+
+    expect(started).toHaveLength(1);
+    for (const id of ['p1', 'p2', 'p3']) {
+      expect(storage.downloads.get(id).status).toBe('paused');
+    }
   });
 });

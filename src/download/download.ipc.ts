@@ -23,8 +23,12 @@ export function registerDownloadIpc(
       throw new Error('Only HTTPS download URLs are allowed');
     }
 
+    // An already-downloaded episode keeps its row; re-upserting would wipe
+    // video_path (INSERT OR REPLACE) and break offline playback.
+    const hadVideo = storage.getEpisodeVideoPaths(episodeId) !== null;
+
     // Per D-07: Save episode metadata at download time for offline library
-    if (metadata) {
+    if (metadata && !hadVideo) {
       const posterPath = metadata.posterUrl
         ? await downloadPoster(metadata.posterUrl, episodeId)
         : '';
@@ -40,7 +44,15 @@ export function registerDownloadIpc(
       });
     }
 
-    return queue.add(episodeId, url, title, subUrls);
+    try {
+      return await queue.add(episodeId, url, title, subUrls);
+    } catch (err) {
+      // Otherwise the library shows a 0 MB entry with no file behind it.
+      if (!hadVideo && !storage.getDownloadById(episodeId) && !storage.getCacheEntry(episodeId)) {
+        storage.deleteEpisodeMetadata(episodeId);
+      }
+      throw err;
+    }
   });
 
   ipcMain.handle('download:pause', async (_event, id: string) => queue.pause(id));
@@ -175,10 +187,17 @@ export function registerDownloadIpc(
     const meta = storage.getEpisodeVideoPaths(episodeId);
     const dl = storage.getDownloadById(episodeId);
     const videoPath = meta?.videoPath || dl?.outputPath;
-    if (!videoPath) return;
+
+    // Entries without a file (failed/unfinished downloads) must still be
+    // removable — returning early here left them stuck in the library.
+    if (dl && dl.status !== 'completed') {
+      queue.cancel(episodeId);
+    }
 
     // Delete main video file
-    try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+    if (videoPath) {
+      try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+    }
     // Delete subtitle files
     if (meta?.subPaths) {
       try {
