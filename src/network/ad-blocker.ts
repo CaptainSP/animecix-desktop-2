@@ -30,19 +30,34 @@ export class AdBlocker {
   /**
    * Load bundled EasyList and EasyPrivacy from the filter-lists directory.
    * Called from the main process during app initialization.
+   *
+   * Packaged layouts differ per platform: in dev / unpacked builds the lists
+   * sit next to the compiled main bundle (__dirname/filter-lists), while
+   * Forge-packaged builds carry them as extraResource under
+   * process.resourcesPath/filter-lists. Try each location in turn.
    */
   loadFilterLists(): void {
-    const filterDir = path.join(__dirname, 'filter-lists');
+    const candidates: string[] = [path.join(__dirname, 'filter-lists')];
+    if (typeof process.resourcesPath === 'string') {
+      candidates.push(path.join(process.resourcesPath, 'filter-lists'));
+    }
     this.filterData = {};
 
     for (const fileName of ['easylist.txt', 'easyprivacy.txt']) {
-      const filePath = path.join(filterDir, fileName);
-      try {
-        const text = fs.readFileSync(filePath, 'utf8');
-        ABPFilterParser.parse(text, this.filterData);
-      } catch (err) {
+      let loaded = false;
+      for (const dir of candidates) {
+        try {
+          const text = fs.readFileSync(path.join(dir, fileName), 'utf8');
+          ABPFilterParser.parse(text, this.filterData);
+          loaded = true;
+          break;
+        } catch {
+          // Try the next candidate directory.
+        }
+      }
+      if (!loaded) {
         // If filter file is missing, log and continue — app still works without
-        console.warn(`[AdBlocker] Could not load ${fileName}:`, err);
+        console.warn(`[AdBlocker] Could not load ${fileName}: not found in ${candidates.join(', ')}`);
       }
     }
 
