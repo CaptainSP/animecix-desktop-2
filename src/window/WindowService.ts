@@ -15,19 +15,6 @@ const DEFAULT_SITE_URL = 'https://animecix.tv';
  */
 const PLAYER_NAVBAR_HEIGHT = 56;
 
-/**
- * Cloudflare Turnstile (and similar CAPTCHAs) flag User-Agents containing an
- * "Electron/…" token. Strip the Electron and app-name tokens from the default
- * UA so the underlying Chromium presents as plain Chrome, letting Turnstile
- * complete inside the app. Pure/testable — deriving from the real default UA
- * keeps the Chromium major correct across Electron upgrades.
- */
-export function buildBrowserUserAgent(defaultUa: string): string {
-  return defaultUa
-    .replace(/ Electron\/[^\s]+/i, '')
-    .replace(/(\(KHTML, like Gecko\) ).*?(Chrome\/)/i, '$1$2');
-}
-
 function getSiteUrl(): string {
   const configuredUrl = import.meta.env.VITE_SITE_URL;
   if (!configuredUrl || configuredUrl.includes('your-site.com')) {
@@ -136,12 +123,12 @@ export function createWindow(storage: StorageService): BrowserWindow {
 
   const win = new BrowserWindow(browserWindowOptions);
 
-  // Present as plain Chrome (not Electron) so Cloudflare Turnstile accepts the
-  // client. The CDN's Firefox-UA override (onBeforeSendHeaders) still applies
-  // per-request on top of this for tau-video.xyz/file/*.
-  win.webContents.setUserAgent(
-    buildBrowserUserAgent(win.webContents.getUserAgent())
-  );
+  // INTENTIONAL — DO NOT override the User-Agent here. Cloudflare Turnstile
+  // accepts the native Electron UA ("AnimeciX/x.y.z … Electron/…") but loops on
+  // error 600010 once the string is hand-edited (e.g. stripped to look like
+  // plain Chrome): the edited UA no longer matches navigator.userAgentData and
+  // Chromium's other fingerprints. Repro: github.com/akriaueno/electron-turnstile-repro
+  // The CDN's per-request Firefox-UA override (onBeforeSendHeaders) is unaffected.
 
   // Restore maximized state
   if (savedBounds.maximized) {
