@@ -26,7 +26,15 @@ const config: ForgeConfig = {
     executableName: 'AnimeciX',                         // Linux makers need this to find the binary
     asar: true,
     icon: 'assets/icon',                                // Forge appends .icns/.ico per platform
-    extraResource: ['assets/player', 'assets/library', 'resources/app-update.yml'],
+    extraResource: [
+      'assets/player',
+      'assets/library',
+      'resources/app-update.yml',
+      // Self-signed TLS credentials for the loopback player server
+      // (src/player/tau-localhost.ts). Kept OUTSIDE assets/player/ so the
+      // private key is never served over HTTP(S).
+      'assets/certs',
+    ],
     osxUniversal: {
       x64ArchFiles: '**/*.node',                        // D-05 + Pitfall 3 — prevent double-lipo of better-sqlite3
     },

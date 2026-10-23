@@ -8,7 +8,7 @@ import './library/library-protocol'; // Side-effect: registers animecix-library:
 import { registerLibraryProtocol } from './library/library-protocol';
 
 import { app, BrowserWindow, net } from 'electron';
-import { startPlayerServer, getPlayerBaseUrl } from './player/tau-localhost';
+import { startPlayerServer, getPlayerBaseUrl, getPlayerTlsPort, registerPlayerCertificateHandler } from './player/tau-localhost';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import started from 'electron-squirrel-startup';
@@ -44,6 +44,13 @@ import { PowerService } from './power/PowerService';
 import { registerPowerIpc } from './power/power.ipc';
 import { PushService } from './notifications/PushService';
 import { registerNotificationsIpc } from './notifications/notifications.ipc';
+
+// Allow the bundled self-signed certificate for https://tau-player.localhost
+// (and ONLY that host): without this, Chromium's mixed-content upgrade of the
+// site's http://tau-player.localhost embed dies on ERR_CERT_AUTHORITY_INVALID.
+// Registered at module scope so no navigation can race it; see
+// registerPlayerCertificateHandler for the scoping rationale.
+registerPlayerCertificateHandler();
 
 // Ignores GPU blocklist for all platforms to force hardware acceleration
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -128,12 +135,24 @@ if (!gotLock) {
     // Phase 2: Register tau-player:// protocol handler (serves assets/player/)
     registerTauProtocol();
 
-    // Start localhost HTTP server for player (WebGPU requires trustworthy origin)
+    // Start localhost player server (HTTP+HTTPS on one port; WebGPU
+    // requires a trustworthy origin, which plain http://localhost satisfies)
     startPlayerServer().then(port => {
+      // __tauPlayerPort stays the plain-HTTP port: the site builds
+      // http://tau-player.localhost URLs from it, which keep working
+      // directly — or get upgraded and redirected to the TLS port.
+      // __tauPlayerTlsPort lets getPlayerUrl() emit https:// directly.
+      const injectPorts = () => {
+        if (mainWindow) {
+          mainWindow.webContents.executeJavaScript(
+            `window.__tauPlayerPort = ${port}; window.__tauPlayerTlsPort = ${getPlayerTlsPort()};`
+          );
+        }
+      };
+      injectPorts();
       if (mainWindow) {
-        mainWindow.webContents.executeJavaScript(`window.__tauPlayerPort = ${port};`);
         mainWindow.webContents.on('did-finish-load', () => {
-          mainWindow?.webContents.executeJavaScript(`window.__tauPlayerPort = ${port};`);
+          injectPorts();
         });
       }
     }).catch(e => console.error('Failed to start player server:', e));

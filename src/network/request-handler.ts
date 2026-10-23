@@ -1,5 +1,5 @@
 import { AdBlocker } from './ad-blocker';
-import { getPlayerBaseUrl } from '../player/tau-localhost';
+import { getPlayerBaseUrl, getPlayerPort, getPlayerTlsPort, PLAYER_HOST } from '../player/tau-localhost';
 
 // First-party domains that must never be blocked
 const SITE_DOMAIN = new URL(import.meta.env.VITE_SITE_URL).hostname;
@@ -20,10 +20,12 @@ export function isIframeRedirect(url: string): boolean {
 }
 
 /**
- * Pure function: converts a tau-video.xyz embed URL to a tau-player://bundle URL.
- * Preserves the full pathname and query string.
+ * Pure function: converts a tau-video.xyz embed URL to the local player URL.
+ * Preserves the full pathname and query string. Prefers the localhost server
+ * base (https, same port answers plain HTTP too) with tau-player:// fallback
+ * when the server is not running (e.g., in unit tests).
  *
- * e.g. https://tau-video.xyz/embed/abc123?vid=1 -> tau-player://bundle/embed/abc123?vid=1
+ * e.g. https://tau-video.xyz/embed/abc123?vid=1 -> https://tau-player.localhost:PORT/embed/abc123?vid=1
  */
 export function buildRedirectUrl(url: string): string {
   const parsed = new URL(url);
@@ -32,6 +34,29 @@ export function buildRedirectUrl(url: string): string {
     return `${base}${parsed.pathname}${parsed.search}`;
   }
   return `tau-player://bundle${parsed.pathname}${parsed.search}`;
+}
+
+/**
+ * Pure function: maps an upgraded mixed-content player URL to the real TLS
+ * listener. Chromium keeps the HTTP port when it upgrades the site's
+ * `http://tau-player.localhost:PORT/...` embed to https, but TLS lives on a
+ * different port — without this redirect the handshake hits the plain-HTTP
+ * listener and the iframe dies. Returns null for anything that is not
+ * exactly that shape (different host, already on the TLS port, ports
+ * unknown/not started), so it can never loop or hijack foreign URLs.
+ */
+export function buildTlsRedirectUrl(url: string, httpPort: number, tlsPort: number): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== PLAYER_HOST) return null;
+  if (!httpPort || !tlsPort || httpPort === tlsPort) return null;
+  if (parsed.port !== String(httpPort)) return null;
+  parsed.port = String(tlsPort);
+  return parsed.toString();
 }
 
 /**
@@ -44,7 +69,10 @@ function isFirstParty(url: string): boolean {
 /**
  * Registers the single combined onBeforeRequest handler on the default session.
  * Order of checks:
- *   1. Iframe redirect (tau-video.xyz/embed/* -> tau-player://bundle/*)
+ *   0. Upgraded player embed (https://tau-player.localhost:<http-port>/* ->
+ *      https://tau-player.localhost:<tls-port>/*) — must run before the
+ *      whitelist below would wave it through to the wrong listener
+ *   1. Iframe redirect (tau-video.xyz/embed/* -> local player URL)
  *   2. First-party whitelist (animecix.tv, tau-video.xyz) -> pass through
  *   3. Ad blocker -> cancel if matched
  *   4. Pass through
@@ -71,6 +99,14 @@ export function setupRequestInterception(adBlocker: AdBlocker): void {
       callback: (response: Electron.Response) => void
     ) => {
       const { url } = details;
+
+      // 0. Upgraded player embed — redirect to the real TLS listener before
+      // the whitelist below would wave it through to the plain-HTTP one.
+      const tlsRedirect = buildTlsRedirectUrl(url, getPlayerPort(), getPlayerTlsPort());
+      if (tlsRedirect) {
+        callback({ redirectURL: tlsRedirect });
+        return;
+      }
 
       // 1. Iframe redirect
       if (isIframeRedirect(url)) {
