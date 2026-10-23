@@ -93,10 +93,11 @@ export function createWindow(storage: StorageService): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // INTENTIONAL — DO NOT CHANGE: required for cross-origin video canvas color extraction.
-      // The player streams from CDN; canvas.getImageData() needs this to avoid tainted-canvas errors.
-      // See OPEN-SOURCE-AUDIT.md "Intentional Bypasses §1" for full rationale.
-      webSecurity: false,
+      // webSecurity stays ON (the default). With it off, Chromium kills the
+      // Cloudflare Turnstile iframe's renderer ("bad IPC message, reason 1")
+      // and the widget hangs grey. Canvas color extraction does not need it:
+      // the player's <video> is crossOrigin="anonymous" and header-rewriter
+      // adds ACAO '*' to CDN responses. See OPEN-SOURCE-AUDIT.md §1.
       preload: path.join(__dirname, 'preload.js'),
     },
   };

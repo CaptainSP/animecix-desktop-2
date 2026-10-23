@@ -30,7 +30,7 @@
 - [x] **H2. Redirect following without URL validation (SSRF)** — Added HTTPS validation + MAX_REDIRECTS=5 depth limit.
 - [x] **H3. `shell.openExternal` without URL validation** — Now validates https:/http: scheme before opening.
 - [x] **H4. No `will-navigate` handler** — Added trusted-origin restriction (site host, localhost, custom protocols).
-- [!] **H5. `webSecurity: false`** — `WindowService.ts:72`. **INTENTIONAL**: Required for cross-origin video canvas color extraction. DO NOT CHANGE.
+- [x] **H5. `webSecurity: false`** — Re-enabled: it broke Cloudflare Turnstile. See Intentional Bypasses §1.
 
 ### Bugs
 - [x] **H6. Duplicate `window-all-closed` handler** — Removed from WindowService.ts. main.ts handler is now the single point.
@@ -86,12 +86,14 @@
 
 These are architectural decisions, not bugs. Changing them will break the app.
 
-### 1. `webSecurity: false` (WindowService.ts:72)
-**Why:** Cross-origin video canvas access is required for the color extraction feature
-(`useColorExtraction.ts`). The player iframe streams video from CDN domains, and the
-main window needs to read pixel data from the video canvas to extract dominant colors
-for the UI theme. Without `webSecurity: false`, canvas `getImageData()` throws a
-tainted-canvas SecurityError.
+### 1. `webSecurity: false` — REVERTED (2026-10-23)
+**Was:** kept off for cross-origin canvas color extraction (`useColorExtraction.ts`).
+**Now on (default):** with it off, Chromium terminates the Cloudflare Turnstile iframe's
+renderer ("Terminating renderer for bad IPC message, reason 1") and the widget stays grey;
+reproduced in an isolated harness where `webSecurity: false` was the only variable.
+Color extraction works without it because the player's `<video>` is
+`crossOrigin="anonymous"` and header-rewriter forces ACAO `*` on CDN/R2 responses.
+Offline (`animecix-offline://`) frames may taint the canvas; extraction skips those ticks.
 
 ### 2. Player iframe offline IPC via `(window as any).animecix` (EmbedPlayer.tsx, useVideoData.ts)
 **Why:** The player page runs under `tau-player://` protocol in an iframe. It has NO access
