@@ -10,7 +10,7 @@
   height: 100%;
   position: absolute;
   color: white;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: Inter, "Helvetica Neue", sans-serif;
 }
 
 .encoding > div {
@@ -43,66 +43,25 @@
     #050505;
 }
 
-.vds-video-layout {
-  --video-brand: #0074e4;
-  --media-brand: #0074e4;
-  --media-focus-ring-color: rgba(0, 116, 228, 0.65);
-  --media-slider-track-fill-bg: #0074e4;
-  --media-menu-bg: rgba(10, 10, 10, 0.48);
-  --media-menu-border: 1px solid rgba(255, 255, 255, 0.12);
-  --media-menu-border-radius: 12px;
-  --media-menu-item-border-radius: 8px;
-  --media-menu-section-border-radius: 8px;
-  --media-menu-item-height: 32px;
-  --media-menu-padding: 8px;
-  --media-menu-min-width: 300px;
-  /* Root settings panel height: 7 rows × 38px + 2×8px padding + 2×1px border.
-     The quick submenus are pinned inside the root panel (see the :has rule
-     below), so this value must match the settings list height. vidstack
-     re-measures --menu-height whenever menu content changes (submenu toggles),
-     which would otherwise shrink the panel (Kalite → ~246px) or balloon it
-     (Altyazı Tarzları → ~828px). Keep in sync with the settings row count. */
+/* Shared player tokens. The fixed settings-panel height must match the rows
+   rendered by the glass settings menu: pinning keeps Hız/Kalite submenus from
+   stretching or shrinking the panel when they open (see GlassControls.css). */
+:root {
   --animecix-settings-height: 284px;
-  --media-tooltip-bg: rgba(10, 10, 10, 0.92);
-  --media-tooltip-color: #fff;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* Glass effect for the settings menu - the default backdrop blur (4px) is
-   invisible behind the old 0.92 opacity background, so raise it and let the
-   video bleed through the now semi-transparent --media-menu-bg above. */
-.vds-menu-items[data-root] {
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-}
+/* Glass effect for menu panels is defined per-panel in GlassControls.css. */
 
-/* Pin the settings menu to the far right edge of the player instead of the
-   settings button (which sits ~100px left of the edge next to PiP/fullscreen).
-   The menu is absolutely positioned inside .vds-controls (inset: 0), so the
-   right offset aligns it with the controls padding. */
-.vds-settings-menu-items[data-root][data-placement] {
-  left: auto !important;
-  right: clamp(12px, 2vw, 24px) !important;
-}
-
-/* Submenu (Kalite/Hız) opens and closes with a 0.35s height transition that
-   stretches the menu into intermediate heights. Snap instead of animating. */
-.vds-menu-items[data-root] {
-  height: auto !important;
-  transition: none !important;
-}
-
-/* Menu open animation: fade + rise + scale-in. The default vds-menu-enter only
-   fades the menu; this gives it a subtle pop that is not tied to the (disabled)
-   height transition above. */
+/* Menu open animation: fade + rise. No scaling — the panel must never
+   look like it grows when submenus open or options are picked. */
 @keyframes animecix-menu-enter {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.96);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -117,17 +76,16 @@
   }
 }
 
-/* Submenu panels (Kalite/Hız/Altyazı Tarzları) slide in from the right and
-   grow (scale) when they open. The root height snaps instantly (see above),
-   so the fade + slide + grow keeps the swap from feeling like an empty pop. */
+/* Submenu panels (Kalite/Hız/Altyazı Tarzları) slide in from the right.
+   No scaling — same reason as above. */
 @keyframes animecix-submenu-enter {
   from {
     opacity: 0;
-    transform: translateX(12px) scale(0.96);
+    transform: translateX(12px);
   }
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0);
   }
 }
 
@@ -142,116 +100,48 @@
   }
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] {
+.vds-side-submenu {
   animation: animecix-submenu-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Hız & Kalite submenus: same box as the settings menu (same top and height).
-   By default the submenu is in-flow below its trigger row (vidstack keeps the
-   row as a sticky header), which offsets the panel from the root menu. Pinning
-   it over the root menu requires the root height to stay stable, so pin it to
-   the settings list height instead of --menu-height (which vidstack re-measures
-   whenever content changes — see the --animecix-settings-height comment). */
-.vds-settings-menu-items[data-root]:has(.vds-quick-submenu[data-open]) {
-  height: var(--animecix-settings-height) !important;
-  /* The sticky trigger row overflows the content box by ~2px, which draws a
-     thin horizontal scrollbar that eats ~10px of client height. That shrinks
-     the anchored submenu (height: 100%) and leaves a lighter glass band at the
-     bottom of the panel. Clip instead of scroll — the submenu scrolls itself. */
-  overflow-x: hidden !important;
-}
-
-/* Caption styles menu needs more vertical room for its sections (Font, Text,
-   Text Background, Display Background, Reset). Only this submenu gets the
-   taller height — Hız and Kalite keep the default. */
-.vds-settings-menu-items[data-root]:has(.vds-font-style-items[data-open]) {
-  height: 360px !important;
-}
-
-/* The open submenu's trigger row acts as the panel header (label + back
-   navigation). It normally stays in the root's flow behind the anchored
-   submenu — dimmed under the panel background and unclickable — so the first
-   list item (e.g. 0.25x) ends up under it. Lift it above its own panel and
-   pin it to the panel's top. Works for nested quick submenus too (the
-   containing block is the nearest positioned ancestor = the open panel). */
-.vds-menu:has(> .vds-menu-items.vds-quick-submenu[data-open]) > .vds-menu-item {
-  position: absolute !important;
-  top: var(--media-menu-padding, 8px) !important;
-  left: var(--media-menu-padding, 8px) !important;
-  right: var(--media-menu-padding, 8px) !important;
-  /* The default sticky-row rule keeps width: 100%, which over-constrains the
-     left/right offsets and makes the header stick out past the panel's right
-     edge by the offset amount. Resolve width from the offsets instead. */
-  width: auto !important;
-  z-index: 2 !important;
-  /* Mask the scrolling list behind the header (Altyazı Tarzları). */
-  /* Fully transparent — no background, just text over the video. A thin
-     bottom border marks the header boundary. */
-  background: transparent !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
-}
-
-.vds-quick-submenu[data-open] {
-  position: absolute !important;
-  inset: 0 !important;
-  /* With inset 0 and height auto the box sizes to its content and bottom: 0 is
-     ignored, leaving a gap under the panel. Pin the height to fill the root. */
-  height: 100% !important;
-  /* Header row (38px) + 6px gap + panel padding, so the list starts below
-     the header with a small breathing room. */
-  padding: calc(var(--media-menu-padding, 8px) + 38px + 6px) var(--media-menu-padding, 8px) var(--media-menu-padding, 8px) !important;
-  display: flex;
-  flex-direction: column;
-  /* Align the list to the start — short lists (Kalite, Hız) sit flush at
-     the top below the header, and tall lists (Altyazı Tarzları) scroll
-     from the top. */
-  justify-content: flex-start;
-  overflow-y: auto !important;
-}
-
-/* Slightly taller radio rows in the quick submenus: default rows are 38px
-   (18px text + 2×10px padding), bring them to 36px. */
-.vds-quick-submenu[data-open] .vds-radio {
-  padding-top: 9px !important;
-  padding-bottom: 9px !important;
-}
+/* Radio rows inside side boxes. */
 
 /* Radio options cascade in right after the panel - each row a few ms later
    than the one above it. Only the first eight get their own delay; see the
    nth-child(n + 9) rule below for why the cascade stops there. */
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio {
+.vds-side-submenu .vds-radio {
   animation: animecix-submenu-item-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(1) {
+.vds-side-submenu .vds-radio:nth-child(1) {
   animation-delay: 0.03s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(2) {
+.vds-side-submenu .vds-radio:nth-child(2) {
   animation-delay: 0.06s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(3) {
+.vds-side-submenu .vds-radio:nth-child(3) {
   animation-delay: 0.09s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(4) {
+.vds-side-submenu .vds-radio:nth-child(4) {
   animation-delay: 0.12s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(5) {
+.vds-side-submenu .vds-radio:nth-child(5) {
   animation-delay: 0.15s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(6) {
+.vds-side-submenu .vds-radio:nth-child(6) {
   animation-delay: 0.18s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(7) {
+.vds-side-submenu .vds-radio:nth-child(7) {
   animation-delay: 0.21s;
 }
 
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(8) {
+.vds-side-submenu .vds-radio:nth-child(8) {
   animation-delay: 0.24s;
 }
 
@@ -259,57 +149,19 @@
    16 presets (0.25x-4x), well past the longest quality list, and without this
    those rows would inherit no delay at all and flash in ahead of rows 2-8.
    Continuing the stagger instead would push the bottom of the list to ~0.5s. */
-.vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio:nth-child(n + 9) {
+.vds-side-submenu .vds-radio:nth-child(n + 9) {
   animation-delay: 0.24s;
 }
 
 @media (prefers-reduced-motion) {
-  .vds-menu-items[data-submenu][aria-hidden='false'],
-  .vds-menu-items[data-submenu][aria-hidden='false'] .vds-radio {
+  .vds-side-submenu,
+  .vds-side-submenu .vds-radio {
     animation: none;
     opacity: 1;
   }
 }
 
-.vds-controls-group {
-  padding-inline: clamp(12px, 2vw, 24px);
-}
-
-/* The scrim behind the controls. `.vds-controls` is inset: 0, so every
-   percentage here is a share of the whole player — a stop at 78% dimmed more
-   than half the picture every time the controls came up (0.65 alpha a fifth of
-   the way up, 0.32 at the middle of the frame), which viewers reported as a
-   black shade rising from the bottom on every mouse move or seek. Keep the
-   scrim where the controls actually are: strong behind the button row and the
-   time slider (the bottom ~10% of the player), gone by 26%. */
-.vds-controls {
-  background: linear-gradient(
-    to top,
-    rgba(0, 0, 0, 0.82) 0%,
-    rgba(0, 0, 0, 0.45) 7%,
-    rgba(0, 0, 0, 0.12) 16%,
-    transparent 26%
-  ) !important;
-}
-
-.vds-audio-menu {
-  display: none !important;
-}
-
-/* Hide the default settings submenus — they are replaced by flat menu items
-   injected via the settingsMenuItemsStart/End slots (FlatSettingsMenu.tsx,
-   QualityMenu.tsx, SpeedMenu.tsx, CaptionStylesMenu.tsx, CaptionsMenu.tsx).
-   Vidstack split its single playback menu into separate quality and speed
-   menus, so .vds-playback-menu alone stopped matching anything here and the
-   defaults came back alongside ours — a second "Hız" and "Kalite" row. The old
-   name is kept so this still holds if the player is ever rolled back. */
-.vds-playback-menu,
-.vds-quality-menu,
-.vds-speed-menu,
-.vds-captions-menu,
-.vds-accessibility-menu {
-  display: none !important;
-}
+/* ---- LIVE MODE (selectors live in GlassControls.css) ---- */
 
 /* Remove backdrop blur from Vidstack captions - JASSUB handles ASS rendering */
 .vds-captions [data-part='cue'] {
@@ -325,12 +177,14 @@
      0    0   4px rgba(0, 0, 0, 0.6) !important;
 }
 
-/* Skip button */
+/* Skip button (stays BELOW the settings/enhancement menus: they live in
+   the controls stacking context at z-index 20, so anything lower still
+   clears the video/captions layers). */
 .skip {
   position: absolute;
-  bottom: clamp(84px, 12vh, 118px);
+  bottom: clamp(96px, calc(12vh + 12px), 130px);
   right: clamp(16px, 3vw, 32px);
-  z-index: 999999;
+  z-index: 18;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -343,7 +197,7 @@
   padding: 10px 18px;
   font-size: 14px;
   font-weight: 700;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: Inter, "Helvetica Neue", sans-serif;
   cursor: pointer;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
   transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
@@ -359,58 +213,74 @@
   transform: translateY(0);
 }
 
-/* Navigation buttons (prev/next episode) - only visible when controls are shown */
-.nav-btn {
+/* ── Next-episode prompt (outro) ─────────────────────────────
+   Sits exactly where the skip button sits (it stands down while the
+   prompt is visible). Solid blue pill + cancel button; the pill jumps
+   to the next episode on click, X dismisses it for this outro pass. */
+
+.next-countdown {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 999999;
-  pointer-events: auto;
+  bottom: clamp(94px, calc(12vh + 10px), 128px);
+  right: clamp(16px, 3vw, 32px);
+  z-index: 18;
   display: flex;
   align-items: center;
+  gap: 8px;
+  animation: animecix-menu-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.next-countdown-cancel {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  background: rgba(10, 10, 10, 0.58);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
   border-radius: 50%;
-  width: 48px;
-  height: 48px;
+  border: none;
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
   cursor: pointer;
-  transition: background-color 0.2s, opacity 0.3s, transform 0.2s;
-  opacity: 0;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
+  transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-[data-controls] .nav-btn {
-  opacity: 0.7;
+.next-countdown-cancel:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
-[data-controls] .nav-btn:hover {
-  background-color: rgba(255, 255, 255, 0.18);
-  opacity: 1;
-  transform: translateY(-50%) scale(1.04);
+.next-countdown-cancel:active {
+  transform: scale(0.94);
 }
 
-.nav-btn-prev {
-  left: 25%;
+.next-countdown-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: #1a9fff;
+  color: #fff;
+  font-family: Inter, "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-.nav-btn-next {
-  right: 25%;
+.next-countdown-pill:hover {
+  background: #33adff;
 }
 
-@media (min-width: 768px) {
-  .nav-btn {
-    width: 60px;
-    height: 60px;
-  }
+.next-countdown-pill:active {
+  transform: scale(0.96);
+}
 
-  .nav-btn svg {
-    width: 32px;
-    height: 32px;
-  }
+.next-countdown-label,
+.next-countdown-icon {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Enhancement container + dynamically created canvas */
@@ -460,7 +330,7 @@
   padding: 12px 18px 20px max(18px, env(safe-area-inset-left));
   background: linear-gradient(to bottom, rgba(0,0,0,0.82), rgba(0,0,0,0.28), transparent);
   pointer-events: none;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: Inter, "Helvetica Neue", sans-serif;
 }
 
 .offline-header > * {
@@ -559,22 +429,9 @@
   100% { transform: rotate(360deg); }
 }
 
-/* ---- LIVE MODE ---- */
+/* ---- LIVE MODE (selectors live in GlassControls.css) ---- */
 
-.live-mode .vds-time-slider,
-.live-mode .vds-play-button,
-.live-mode .vds-seek-backward-button,
-.live-mode .vds-seek-forward-button,
-.live-mode .vds-time-group,
-.live-mode .vds-time,
-.live-mode [data-media-time-slider],
-.live-mode [data-media-play-button],
-.live-mode [data-media-seek-backward-button],
-.live-mode [data-media-seek-forward-button],
-.live-mode [data-media-time-group],
-.live-mode [data-media-time] {
-  display: none !important;
-}
+/* ---- SKIP / ENHANCEMENT / OFFLINE / SPINNER (unchanged) ---- */
 
 .live-badge {
   position: absolute;
@@ -592,7 +449,7 @@
   gap: 6px;
   z-index: 100;
   pointer-events: none;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: Inter, "Helvetica Neue", sans-serif;
   box-shadow: 0 8px 24px rgba(229, 57, 53, 0.28);
 }
 
@@ -624,7 +481,7 @@
   font-size: 12px;
   z-index: 100;
   pointer-events: none;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: Inter, "Helvetica Neue", sans-serif;
 }
 
 @media (max-width: 640px) {
@@ -633,14 +490,6 @@
     min-height: 38px;
     padding: 8px 14px;
     font-size: 13px;
-  }
-
-  .nav-btn-prev {
-    left: 14px;
-  }
-
-  .nav-btn-next {
-    right: 14px;
   }
 
   .offline-header {

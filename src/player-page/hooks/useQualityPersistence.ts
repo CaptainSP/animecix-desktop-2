@@ -67,6 +67,18 @@ export function saveQuality(quality: QualityLike | null): void {
 }
 
 /**
+ * Bumped every time the viewer picks a quality by hand (see QualityMenu).
+ * A restore polling in the background must never override a newer manual
+ * pick: if the quality list arrives late (slow manifest) the poll would
+ * otherwise stamp the saved/default value over what the viewer just chose.
+ */
+let manualPickEpoch = 0;
+
+export function markManualQualityPick(): void {
+  manualPickEpoch += 1;
+}
+
+/**
  * Picks the available quality closest to the saved preference, mirroring
  * Vidstack's own matching (minimize width + height + bitrate distance).
  * Returns null for an empty list.
@@ -93,6 +105,26 @@ export function findBestQualityMatch<T extends QualityLike>(
 }
 
 /**
+ * The tallest quality in the list — the default every episode opens at while
+ * the viewer has no pick on record. Vidstack's own pick is scored against the
+ * rendered player size and lands on 720p in this window; the viewer asked for
+ * the best available quality (1080p on sources that have it) instead. The
+ * pick is deliberately not saved, so it stays a default and a later manual
+ * selection still wins on the next episode.
+ */
+export function findTallestQuality<T extends QualityLike>(
+  qualities: readonly T[]
+): T | null {
+  let top: T | null = null;
+  for (const quality of qualities) {
+    if (top === null || (quality.height ?? 0) > (top.height ?? 0)) {
+      top = quality;
+    }
+  }
+  return top;
+}
+
+/**
  * Re-applies the viewer's quality preference whenever an episode loads.
  *
  * WHY (PLAY-05): Vidstack's built-in quality storage is switched off (see
@@ -113,10 +145,14 @@ export function useQualityPersistence(
     if (!sourcesSignature) return;
 
     const sourceUrls = new Set(sourcesSignature.split('|'));
+    // Picks made after this effect started win over the restore.
+    const epoch = manualPickEpoch;
     let attempts = 0;
     let timer: ReturnType<typeof setInterval> | null = null;
 
     const tryRestore = (): boolean => {
+      // A newer manual pick landed while polling — stop and leave it alone.
+      if (manualPickEpoch !== epoch) return true;
       // useVideoData sets `data` before it clears `loading` (that waits on the
       // skip-marker fetch), so the player is usually not mounted yet when this
       // first runs. Giving up here meant the restore never happened on a fresh
@@ -137,10 +173,13 @@ export function useQualityPersistence(
       if (!isCurrentList) return false;
 
       const saved = loadSavedQuality();
-      if (saved) {
-        const best = findBestQualityMatch(qualities, saved);
-        if (best) best.selected = true;
-      }
+      // No pick on record: open the episode at the top of the ladder (1080p
+      // where available) rather than leaving Vidstack's size-based auto to
+      // settle on 720p.
+      const best = saved
+        ? findBestQualityMatch(qualities, saved)
+        : findTallestQuality(qualities);
+      if (best) best.selected = true;
       return true;
     };
 

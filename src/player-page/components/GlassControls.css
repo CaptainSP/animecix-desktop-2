@@ -1,0 +1,871 @@
+/* ── AnimeciX player controls ───────────────────────────────────
+   Custom bottom bar: uniform flat-blur circle buttons floating above a
+   full-width seek slider. No DefaultVideoLayout skin is loaded
+   (main.tsx only pulls vidstack base.css); everything below is ours.
+------------------------------------------------------------------ */
+
+.glass-controls {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 0 clamp(10px, 1.8vh, 18px);
+  /* Gentle scrim confined to the bar area so the art stays visible. */
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.22) 55%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+  pointer-events: none;
+  font-family: Inter, "Helvetica Neue", sans-serif;
+}
+
+[data-controls] .glass-controls,
+[data-ended] .glass-controls {
+  opacity: 1;
+  /* MUST stay `none`, not `translateY(0)`: any transform on the bar makes
+     it the containing block AND backdrop root for the fixed settings menu
+     inside it, and Chromium then refuses to sample the video for the
+     menu's `backdrop-filter` (menu renders with a dead, sharp backdrop).
+     Measured directly: translateY(0) → sharp, none → frosted. The slide-in
+     still works — `none` interpolates as the identity from translateY(8px). */
+  transform: none;
+  /* !important: Vidstack's Controls root carries an inline pointer-events
+     style that would otherwise keep the whole bar (including the seek
+     slider) unclickable even while visible. */
+  pointer-events: auto !important;
+}
+
+@media (prefers-reduced-motion) {
+  .glass-controls {
+    transition: none;
+  }
+}
+
+/* ── Fullscreen: lift bar content off the screen edge ─────────
+   Windowed, the iframe edges give the pills visual room; in fullscreen
+   the bar reads as glued to the display edge. The lift goes on the last
+   child's margin — NOT on the bar's `bottom` — so the bar box (and its
+   scrim background) stays glued to the viewport edge while slider +
+   pills ride up. (Padding declarations on this bar do not take effect
+   in fullscreen in this Chromium build — measured 0px despite matching
+   rules — while offset and margin do.) Base row margin is 3px, so 13px
+   here = the same 3px + 10px extra in fullscreen. */
+
+.glass-controls.glass-is-fullscreen .glass-button-row {
+  margin-bottom: 13px;
+}
+
+/* ── Settings + enhancement live inside the right pill ──────────
+   Their dropdowns open above the pill, pinned to the far right edge
+   (a few px past the pill) with their bottoms level with the pill. */
+
+.glass-pill .ve-menu {
+  display: inline-flex;
+}
+
+.glass-pill .ve-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: none;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.glass-pill .ve-toggle-btn:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.glass-pill .ve-toggle-btn:active {
+  transform: scale(0.94);
+}
+
+.glass-pill .ve-toggle-btn .vds-icon {
+  width: 31px;
+  height: 31px;
+}
+
+.glass-pill .ve-toggle-btn.active {
+  color: #4aa3ff;
+}
+
+/* ── Pill groups ───────────────────────────────────────────────
+   Dark translucent pills holding flat icon buttons (Figma: one pill for
+   play+mute, one for the clock, one for settings+PiP+enhance+fullscreen).
+   Icons inside pills are transparent — the pill itself is the surface. */
+
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  border: none;
+  background-color: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glass-time-pill {
+  padding: 2px 16px;
+  min-height: 38px;
+}
+
+/* ── Flat blur circle buttons ──────────────────────────────────
+   Standalone look (kept for menu triggers); inside pills they go
+   fully flat and share one icon size. */
+
+.glass-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  background-color: rgba(10, 12, 16, 0.45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.glass-pill .glass-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.glass-btn:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.glass-btn:active {
+  transform: scale(0.94);
+}
+
+.glass-btn:focus-visible {
+  outline: 2px solid rgba(0, 116, 228, 0.8);
+  outline-offset: 2px;
+}
+
+.glass-btn .vds-icon {
+  width: 31px;
+  height: 31px;
+}
+
+/* ── Anime/episode title next to the clock ─────────────────────── */
+
+.glass-title {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 32vw;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  padding-inline: 6px;
+  user-select: none;
+}
+
+/* ── Button row ──────────────────────────────────────────────── */
+
+.glass-button-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-inline: clamp(14px, 2.5vw, 28px);
+  /* Pill + title row sits 3px above the bar's bottom padding. */
+  margin-bottom: 3px;
+}
+
+.glass-spacer {
+  flex: 1;
+}
+
+.glass-time {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  padding-inline: 4px;
+  user-select: none;
+}
+
+.glass-time-divider {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.glass-live-spacer {
+  height: 48px;
+}
+
+/* ── Volume inline expander ──────────────────────────────────
+   No popup: hovering the volume group stretches the pill rightward and
+   reveals a horizontal slider; leaving shrinks it back. Clicking the
+   speaker icon itself toggles mute (MuteButton default). The slider
+   root carries horizontal padding so the thumb's travel (plus its
+   half-width overhang at 0%/100%) never leaves the pill — the old
+   vertical popup let the dot leak outside its box. Thumb transform is
+   safe here: the thumb has no positioned descendants. */
+
+.glass-volume {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.glass-volume-slider {
+  position: relative;
+  display: block;
+  width: 0;
+  height: 40px;
+  padding-inline: 0;
+  opacity: 0;
+  visibility: hidden;
+  cursor: pointer;
+  touch-action: none;
+  transition: width 0.25s ease, opacity 0.2s ease, padding 0.25s ease, visibility 0.25s;
+}
+
+.glass-volume:hover .glass-volume-slider,
+.glass-volume:focus-within .glass-volume-slider {
+  width: 110px;
+  padding-inline: 8px;
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Live % readout at the slider's right end. Collapses with the slider
+   (max-width, not width, so it animates); fixed inner width in ch keeps
+   the pill from jittering as the digits change. */
+
+.glass-volume-value {
+  max-width: 0;
+  margin-right: 0;
+  opacity: 0;
+  visibility: hidden;
+  overflow: hidden;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  transition: max-width 0.25s ease, opacity 0.2s ease, margin 0.25s ease, visibility 0.25s;
+}
+
+.glass-volume-value > span {
+  display: inline-block;
+  width: 4.5ch;
+  text-align: right;
+}
+
+.glass-volume:hover .glass-volume-value,
+.glass-volume:focus-within .glass-volume-value {
+  max-width: 52px;
+  margin-right: 6px;
+  opacity: 1;
+  visibility: visible;
+}
+
+.glass-volume-track {
+  position: relative;
+  display: block;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Box geometry lives ONLY on the direct child (the track element): the
+   fill carries this class too for its rounded surface, and any top/margin
+   here would shift the blue line off the gray line. */
+
+.glass-volume-slider > .glass-volume-track {
+  width: auto;
+  height: 6px;
+  top: 50%;
+  margin: -3px 6.5px 0;
+}
+
+.glass-volume-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--slider-fill, 0%);
+  background: #1a9fff;
+  will-change: width;
+  pointer-events: none;
+}
+
+.glass-volume-thumb {
+  position: absolute;
+  top: 50%;
+  left: var(--slider-fill, 0%);
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #1a9fff;
+  border: none;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  will-change: left;
+}
+
+/* ── Seek slider (inset bar with full click surface) ─────────────
+   The bar sits inside the side margins (never touches the window edges,
+   so the thumb stays grabbable at 0%/100%). Fill/progress layers ignore
+   pointer events so every click lands on the slider root itself. */
+
+.glass-time-slider {
+  --glass-track-h: 6px;
+  position: relative;
+  display: block;
+  width: auto;
+  margin-inline: clamp(14px, 2.5vw, 28px);
+  height: calc(var(--glass-track-h) + 20px);
+  padding-block: 10px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.glass-slider-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: var(--glass-track-h);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* Inset the visible line by half a thumb on each side, and let the thumb
+   (now a child of the track) travel the line box itself: dot centre lands
+   exactly on the line ends at 0%/100% instead of overshooting past them.
+   Fill/progress % resolve against the same box, so all three stay glued. */
+
+.glass-time-slider > .glass-slider-track {
+  width: auto;
+  margin-inline: 7.5px;
+}
+
+/* Track height stays fixed — growing on hover would change the bar's
+   footprint every time the pointer passes over it. Only the thumb fades in. */
+
+.glass-slider-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--slider-fill, 0%);
+  background: #1a9fff;
+  will-change: width;
+  pointer-events: none;
+}
+
+.glass-slider-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--slider-progress, 0%);
+  background: rgba(26, 159, 255, 0.35);
+  will-change: width;
+  pointer-events: none;
+}
+
+.glass-slider-thumb {
+  position: absolute;
+  top: 50%;
+  left: var(--slider-fill, 0%);
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: #1a9fff;
+  border: none;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  will-change: left;
+}
+
+/* ── Hover time tooltip (no thumbnails — backend has no sprites) ─── */
+
+.glass-slider-preview {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgba(8, 10, 14, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  pointer-events: none;
+  /* Vidstack sets data-visible while hovering/dragging the slider. */
+  opacity: 0;
+}
+
+.glass-slider-preview[data-visible] {
+  opacity: 1;
+}
+
+.glass-slider-value {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Settings menu panel ─────────────────────────────────────── */
+
+/* `display: inline-flex` MUST beat Vidstack's own stylesheet, which forces
+   `display: contents` on Menu.Root. With `contents` the element generates
+   no box, so it cannot be the containing block for the absolutely
+   positioned menu below — right/bottom would fall through to the viewport
+   and drop the panel over the pill. The Root wraps only the pill capsule,
+   so the box is exactly the pill's, keeping the old geometry. */
+.glass-settings {
+  position: relative;
+  display: inline-flex !important;
+}
+
+/* Panel: byte-identical recipe to the pills. The backdrop-filter MUST stay
+   on THIS box and the box must have no backdrop-filtered ANCESTOR (the
+   pill would be one — measured 0.00% delta inside it; see SettingsMenu
+   docs). A ::before variant (frosted layer on a negative-z pseudo) was
+   tried here and measured inert in this Chromium build — do not reintroduce
+   it. The box's own backdrop-filter, in turn, is a backdrop root for the
+   side submenus rendered inside it, which is why SidePanel portals them
+   into .glass-menu-dock instead (see GlassMenu.tsx). */
+.glass-menu-items[data-root] {
+  min-width: 300px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 12px;
+  border: none;
+  color: #fff;
+  background-color: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-family: Inter, "Helvetica Neue", sans-serif;
+  animation: animecix-menu-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* Auto height like the old menu: the panel hugs its rows, no empty space
+     at the bottom. Submenus overlay absolutely (inset 0), so opening one
+     never changes the panel size. */
+  height: auto;
+}
+
+/* Geometry wrapper for the menu and its portaled side submenus. Sits
+   OUTSIDE the pill (the pill is a backdrop root) and is itself filter-free,
+   so every backdrop-filtered child samples the video again. Its box wraps
+   the menu exactly (shrink-to-fit around the static menu), so the side
+   submenus' right: calc(100% + 10) keeps pointing at the menu's left edge
+   and top/bottom: 0 keeps them stretched to the menu's height — same
+   geometry as when they were children of the menu box. */
+.glass-settings .glass-menu-dock {
+  position: absolute;
+  right: 0;
+  /* Clears the seek slider too (slider 26px + 10px gap + 8px breathing
+     room above the 48px pill): the menu used to overlap the bar. */
+  bottom: 92px;
+}
+
+/* Menu inside the dock: the DOCK owns the geometry (see above); defeat
+   vidstack's placement engine, which otherwise sets inline absolute
+   coordinates against the wrong ancestor and overlaps the pill. Must be
+   static (not absolute/fixed): absolute would re-anchor it to the dock's
+   shrink-to-fit box and push it off, fixed would resolve against the
+   viewport. transform: none kills the placement engine's inline transform. */
+.glass-settings .glass-menu-items[data-root] {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+/* Root panel keeps its natural (content) height. The horizontal clip
+   kills the stray scrollbar the submenu trigger rows would draw. */
+.glass-menu-items[data-root] {
+  overflow-x: hidden;
+}
+
+/* Side boxes: separate panels opening LEFT of the root box, tops aligned.
+   Mounted only while their section is active; only one is ever open, so
+   switching sections just swaps the box. Same frosted recipe as the root.
+   Stretched top-to-bottom so the box bottom always lines up with the root. */
+.vds-side-submenu {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 0;
+  bottom: 0;
+  min-width: 240px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 12px;
+  border: none;
+  color: #fff;
+  background-color: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: animecix-submenu-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Compact option rows so the 8 speeds fit without scrolling. */
+.vds-side-submenu .vds-radio {
+  min-height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/* The open section's trigger stays a normal row in the root panel —
+   highlighted so the active section is obvious. */
+.glass-menu-items[data-root] .vds-menu-item[aria-expanded='true'] {
+  background: rgba(0, 116, 228, 0.22);
+}
+
+@media (max-width: 700px) {
+  /* Narrow windows: fall back to overlaying the root panel. */
+  .vds-side-submenu {
+    right: 0;
+    left: 0;
+    top: 0;
+    height: 100%;
+  }
+}
+
+/* (Kept for reference: Vidstack submenu panels are no longer used —
+   sections render in .vds-side-submenu boxes above.) */
+
+/* Thin blue scrollbar for the settings panels. */
+.glass-menu-items[data-root]::-webkit-scrollbar,
+.vds-side-submenu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.glass-menu-items[data-root]::-webkit-scrollbar-track,
+.vds-side-submenu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass-menu-items[data-root]::-webkit-scrollbar-thumb,
+.vds-side-submenu::-webkit-scrollbar-thumb {
+  background: #1a9fff;
+  border-radius: 999px;
+}
+
+/* Root panel keeps its natural (content) height. Overflow stays visible so
+   the absolutely-positioned side boxes (which stick out left of the panel)
+   are never clipped. */
+.glass-menu-items[data-root] {
+  overflow: visible;
+}
+
+@media (prefers-reduced-motion) {
+  .glass-menu-items[data-root] {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Menu rows (shared by settings root + submenus). */
+.vds-menu-items .vds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.vds-menu-items .vds-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vds-menu-items .vds-menu-item-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.vds-menu-items .vds-menu-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vds-menu-items .vds-menu-item-hint {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+/* Radio rows: check appears only on the selected option. */
+.vds-menu-items .vds-radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.vds-menu-items .vds-radio:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vds-menu-items .vds-radio .vds-icon {
+  width: 18px;
+  height: 18px;
+  color: #4aa3ff;
+  opacity: 0;
+}
+
+.vds-menu-items .vds-radio[aria-checked='true'] .vds-icon,
+.vds-menu-items .vds-radio[data-checked] .vds-icon {
+  opacity: 1;
+}
+
+.vds-menu-items .vds-radio[aria-checked='true'],
+.vds-menu-items .vds-radio[data-checked] {
+  background: rgba(0, 116, 228, 0.22);
+}
+
+/* Sections inside Altyazı Tarzları. */
+.vds-menu-items .vds-menu-section {
+  padding: 2px 0 6px;
+}
+
+.vds-menu-items .vds-menu-section + .vds-menu-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.vds-menu-items .vds-menu-section-label {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Toggle switch (loop / announcements / PiP / keyboard animations). */
+.glass-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.glass-switch.on {
+  background: #0074e4;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.glass-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.18s ease;
+}
+
+.glass-switch.on .glass-switch-thumb {
+  transform: translateX(16px);
+}
+
+/* Mini slider rows (font size / opacity). */
+.vds-menu-items .vds-slider-item {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.glass-mini-slider {
+  display: block;
+  flex: 1 1 100%;
+  height: 20px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.glass-mini-slider .vds-slider-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.glass-mini-slider .vds-slider-track-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0074e4, #38a1ff);
+}
+
+.glass-mini-slider .vds-slider-thumb {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #fff;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+}
+
+/* Color picker swatch. */
+.glass-color-picker {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* ── Buffering spinner ───────────────────────────────────────── */
+
+.glass-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 72px;
+  height: 72px;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  pointer-events: none;
+  display: none;
+}
+
+[data-buffering] .glass-spinner,
+[data-waiting] .glass-spinner {
+  display: block;
+}
+
+.glass-spinner-track {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  border: 5px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #1a8fff;
+  animation: glass-spin 1s linear infinite;
+}
+
+.glass-spinner-fill {
+  display: none;
+}
+
+@keyframes glass-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Native captions cue (kept readable without default skin) ─── */
+
+.vds-captions {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ── Gestures layer (plain hit-test div; handlers are React) ───── */
+
+.vds-gestures {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* ── Live mode: play/volume/clock pills and seekbar are hidden ─── */
+
+.live-mode .glass-time-slider,
+.live-mode .glass-play-pill,
+.live-mode .glass-time-pill {
+  display: none !important;
+}
+
+/* ── Small screens ───────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .glass-btn,
+  .glass-pill .ve-toggle-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .glass-btn .vds-icon,
+  .glass-pill .ve-toggle-btn .vds-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .glass-time-pill {
+    display: none;
+  }
+
+  .glass-title {
+    display: none;
+  }
+
+  .glass-menu-items[data-root] {
+    min-width: min(300px, calc(100vw - 32px));
+  }
+}

@@ -8,23 +8,12 @@ import {
   type MediaPlayerInstance,
   type MediaProviderAdapter,
 } from '@vidstack/react';
-import {
-  DefaultVideoLayout,
-  defaultLayoutIcons,
-} from '@vidstack/react/player/layouts/default';
 
-import { turkishTranslations } from './translations';
+import { GlassControls } from './GlassControls';
+import { useAnnouncementsPref } from './playerPrefs';
 import { SkipButton } from './SkipButton';
+import { NextCountdown } from './NextCountdown';
 import { MusicInfo } from './MusicInfo';
-import { NavigationButtons } from './NavigationButtons';
-import { EnhancementPanel } from './EnhancementPanel';
-import { FlatSettingsMenu } from './FlatSettingsMenu';
-import { CaptionStylesMenu } from './CaptionStylesMenu';
-import { CaptionsMenu } from './CaptionsMenu';
-import { QualityMenu } from './QualityMenu';
-import { PLAYBACK_RATES, SpeedMenu } from './SpeedMenu';
-import { LiveBadge } from './LiveBadge';
-import { ViewerCount } from './ViewerCount';
 import { useVideoData } from '../hooks/useVideoData';
 import { useParentMessages, postToParent } from '../hooks/useParentMessages';
 import { useQualityPersistence } from '../hooks/useQualityPersistence';
@@ -96,6 +85,10 @@ export function EmbedPlayer() {
     preset, setPreset, filters, setFilters,
     isActive, hasOutput, stats, panelOpen, setPanelOpen,
   } = useVideoEnhancement(enhancementContainerRef);
+
+  // Screen-reader announcements toggle (settings menu). GlassControls mounts
+  // <MediaAnnouncer> from this — same storage key the old layout used.
+  const [announcements, setAnnouncements] = useAnnouncementsPref();
 
   // HLS carries its own seamless switching; only the MP4 ladder needs pinning.
   const qualityGuard = useQualityGuard(playerRef, { pinAuto: !data?.hls });
@@ -269,6 +262,15 @@ export function EmbedPlayer() {
     liveCallbacks
   );
 
+  // Ask the site for episode navigation info when the episode data is in
+  // but nav info never arrived (e.g. session restore, where the site's
+  // one-shot navigationInfo post can predate the player mount). The outro
+  // prompt needs hasNext; without an answer it simply stays hidden, so
+  // this is a no-op for sites that don't handle the request yet.
+  useEffect(() => {
+    if (meta && !navInfo) postToParent('getNavigationInfo');
+  }, [meta, navInfo]);
+
   // Report caption changes to parent (when user manually changes subtitles in player UI)
   // This triggers animecix.tv to persist the preference to SQLite via IPC
   useEffect(() => {
@@ -336,7 +338,7 @@ export function EmbedPlayer() {
       Math.abs(entry.width - viewportWidth) +
       Math.abs(entry.height - viewportHeight);
 
-    // A stored quality outranks the viewport guess: that is the one
+    // A stored quality outranks everything else: that is the one
     // useQualityPersistence restores once the sources are in, and the restore
     // is what aborts the first fetch when it lands on a different source.
     const preferredHeight = readPreferredQualityHeight();
@@ -346,6 +348,11 @@ export function EmbedPlayer() {
         const aPreferred = a.height === preferredHeight ? 0 : 1;
         const bPreferred = b.height === preferredHeight ? 0 : 1;
         if (aPreferred !== bPreferred) return aPreferred - bPreferred;
+      } else if (a.height !== b.height) {
+        // No stored pick: the default is the top of the ladder (see
+        // findTallestQuality), so lead with the tallest file and the first
+        // fetch is the default quality itself — no abort, no swap.
+        return b.height - a.height;
       }
       return distance(a) - distance(b);
     });
@@ -512,49 +519,23 @@ export function EmbedPlayer() {
           style={{ display: isActive ? 'block' : 'none' }}
         />
 
-        <DefaultVideoLayout
-          icons={defaultLayoutIcons}
-          translations={turkishTranslations}
-          // The layout defaults to "system", which puts a `light` class on the
-          // menus for viewers whose OS is in light mode. That class sets the
-          // menu text to #1a1a1a — near-black on the dark glass panel this
-          // player hardcodes, so labels all but disappear while the hints keep
-          // their own lighter colour. Our chrome is dark, so say so.
-          colorScheme="dark"
-          thumbnails={isOffline ? undefined : import.meta.env.VITE_API_BASE_URL + '/preview/' + id}
-          playbackRates={PLAYBACK_RATES}
-          slots={{
-            settingsMenuItemsStart: <FlatSettingsMenu />,
-            settingsMenuItemsEnd: (
-              <>
-                <CaptionStylesMenu />
-                <CaptionsMenu />
-                <QualityMenu />
-                <SpeedMenu />
-              </>
-            ),
-            afterSettingsMenu: (
-              <EnhancementPanel
-                preset={preset}
-                onPresetChange={setPreset}
-                filters={filters}
-                onFiltersChange={setFilters}
-                stats={stats}
-                isActive={isActive}
-                panelOpen={panelOpen}
-                onPanelToggle={() => setPanelOpen(!panelOpen)}
-              />
-            ),
+        <GlassControls
+          announcements={announcements}
+          onAnnouncementsChange={setAnnouncements}
+          enhancement={{
+            preset,
+            onPresetChange: setPreset,
+            filters,
+            onFiltersChange: setFilters,
+            stats,
+            isActive,
+            panelOpen,
+            onPanelToggle: () => setPanelOpen(!panelOpen),
           }}
         />
         <SkipButton meta={meta} />
+        <NextCountdown meta={meta} hasNext={navInfo?.hasNext ?? false} />
         <MusicInfo meta={meta} />
-        {navInfo && (
-          <NavigationButtons
-            hasNext={navInfo.hasNext}
-            hasPrev={navInfo.hasPrev}
-          />
-        )}
       </MediaPlayer>
 
       <canvas

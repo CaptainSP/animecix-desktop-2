@@ -33,7 +33,7 @@ import { pruneMissingDownloads } from './download/prune-missing';
 import { registerCacheIpc } from './cache/cache.ipc';
 import { registerPlayerIpc } from './player/player.ipc';
 import { TrayManager } from './download/TrayManager';
-import { UpdaterService } from './updater/UpdaterService';
+import { UpdaterService, isAutoUpdateSupported } from './updater/UpdaterService';
 import { registerUpdaterIpc } from './updater/updater.ipc';
 import { UpdaterBanner } from './updater/UpdaterBanner';
 import { setupWhatsNewAnnouncement } from './updater/whats-new';
@@ -45,22 +45,50 @@ import { registerPowerIpc } from './power/power.ipc';
 import { PushService } from './notifications/PushService';
 import { registerNotificationsIpc } from './notifications/notifications.ipc';
 
-// Ignores GPU blocklist for all platforms to force hardware acceleration
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-
-// Windows and macOS initialize WebGPU by default since Chromium 113 (No flags needed)
-
-// Wayland WebGPU is still experimental and needs specific initialization
-// Check display server first to exclude X11
-if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
-  // Force-enable graphics backends necessary for WebGPU on Linux
-  app.commandLine.appendSwitch('enable-features', 'Vulkan,VulkanFromANGLE,WebGPU');
-  // Unsafe flag still required on Linux — not stable/default yet
-  app.commandLine.appendSwitch('enable-unsafe-webgpu');
-  // explicitly force Vulkan backend since default falls back to software rendering
-  app.commandLine.appendSwitch('use-angle', 'vulkan');
-  // Workaround for Electron's Wayland/Vulkan incompatibility (Bug is still unsolved by Google)
-  app.commandLine.appendSwitch('no-zygote');
+// Linux: let Chromium pick the correct Ozone backend (X11 vs Wayland) itself.
+// The old block forced Vulkan ANGLE on Wayland, but the GPU process rejects
+// exactly that combo ("'--ozone-platform=wayland' is not compatible with
+// Vulkan"), leaving a black / never-painting window on GNOME Wayland —
+// notably on hybrid NVIDIA + AMD laptops. --no-zygote also went away with it:
+// it only papered over the Vulkan failure while weakening the sandbox.
+// Vulkan stays opt-in for the video-enhancement pipeline via ANIME4K_VULKAN=1.
+//
+// Native Wayland + NVIDIA proprietary + fractional scaling still produces
+// compositor artifacts in the field (ghosting/smearing, duplicated cursor),
+// where XWayland stays clean — so NVIDIA machines default to X11.
+// Override with ANIMECIX_OZONE=x11|wayland|auto when you know better.
+function hasNvidiaGPU(): boolean {
+  try {
+    return (
+      existsSync('/proc/driver/nvidia/version') || existsSync('/dev/nvidia0')
+    );
+  } catch {
+    return false;
+  }
+}
+if (process.platform === 'linux') {
+  const ozoneOverride = process.env.ANIMECIX_OZONE;
+  const forceX11 =
+    ozoneOverride === 'x11' ||
+    (!ozoneOverride && !!process.env.WAYLAND_DISPLAY && hasNvidiaGPU());
+  if (forceX11) {
+    app.commandLine.appendSwitch('ozone-platform', 'x11');
+  } else if (ozoneOverride !== 'wayland') {
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  } else {
+    app.commandLine.appendSwitch('ozone-platform', 'wayland');
+  }
+  if (process.env.ANIME4K_VULKAN === '1') {
+    app.commandLine.appendSwitch('enable-features', 'Vulkan,VulkanFromANGLE,WebGPU');
+    // Unsafe flag still required on Linux — not stable/default yet
+    app.commandLine.appendSwitch('enable-unsafe-webgpu');
+    app.commandLine.appendSwitch('use-angle', 'vulkan');
+  }
+} else {
+  // Windows and macOS initialize WebGPU by default since Chromium 113 (no flags
+  // needed). ignore-gpu-blocklist forces hardware acceleration there; on Linux
+  // it forces broken driver paths, so it stays off.
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
 }
 
 // Handle Squirrel.Windows install/uninstall shortcuts
@@ -311,8 +339,11 @@ if (!gotLock) {
     updaterService.init();
     registerUpdaterIpc(updaterService, () => mainWindow);
 
-    // Wire tray "Güncellemeleri kontrol et" menu item
-    trayManager.setUpdaterService(updaterService);
+    // Wire tray "Güncellemeleri kontrol et" menu item (AppImage / win / mac only —
+    // deb/rpm installs update via the system package manager).
+    if (isAutoUpdateSupported()) {
+      trayManager.setUpdaterService(updaterService);
+    }
 
     // In-app banner overlay for update-downloaded event
     updaterBanner = new UpdaterBanner(mainWindow, updaterService);

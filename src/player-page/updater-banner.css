@@ -1,7 +1,7 @@
 html, body {
   margin: 0;
   padding: 0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: Inter, "Helvetica Neue", sans-serif;
   background: #111827;
   color: #f9fafb;
   height: 100%;

@@ -26,7 +26,18 @@ const config: ForgeConfig = {
     executableName: 'AnimeciX',                         // Linux makers need this to find the binary
     asar: true,
     icon: 'assets/icon',                                // Forge appends .icns/.ico per platform
-    extraResource: ['assets/player', 'assets/library', 'resources/app-update.yml'],
+    extraResource: [
+      'assets/player',
+      'assets/library',
+      'resources/app-update.yml',
+      // AdBlocker filter lists (src/network/ad-blocker.ts resolves
+      // process.resourcesPath/filter-lists with a __dirname fallback).
+      'src/network/filter-lists',
+      // Tray icon source: TrayManager reads resourcesPath/tray-icon.png,
+      // falling back to resourcesPath/icon.png (assets/tray-icon.png
+      // never existed — the app icon is reused instead).
+      'assets/icon.png',
+    ],
     osxUniversal: {
       x64ArchFiles: '**/*.node',                        // D-05 + Pitfall 3 — prevent double-lipo of better-sqlite3
     },

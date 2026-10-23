@@ -1,18 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Menu, Slider, useMediaPlayer, useMediaState } from '@vidstack/react';
+import { useMediaPlayer, useMediaState } from '@vidstack/react';
 import { SubtitlesIcon } from '@vidstack/react/icons';
 import {
-  DefaultMenuButton,
-  DefaultMenuItem,
-  DefaultMenuRadioGroup,
-  DefaultMenuSection,
-  DefaultMenuSliderItem,
-  DefaultSliderParts,
-  DefaultSliderSteps,
-  type DefaultLayoutIcon,
-  useDefaultLayoutContext,
-  useDefaultLayoutWord,
-} from '@vidstack/react/player/layouts/default';
+  SettingsRadioGroup,
+  SettingsSection,
+  SettingsSliderRow,
+  SidePanel,
+  SubmenuTrigger,
+  t,
+} from './GlassMenu';
+import { turkishTranslations } from './translations';
 
 /**
  * CaptionStylesMenu -- "Altyazı Tarzları" submenu rebuilt from scratch.
@@ -205,6 +202,8 @@ type FontControlProps = {
   update: (type: FontSettingType, value: string) => void;
 };
 
+type TranslatableLabel = keyof typeof turkishTranslations;
+
 /**
  * Array.isArray narrows to `any[]`, which does not remove `readonly string[]`
  * from the union in the else branch — hence an explicit predicate.
@@ -215,7 +214,7 @@ function isLabelList(
   return Array.isArray(values);
 }
 
-/** Radio submenu (e.g. font family, text shadow). */
+/** Radio section expanding inline (e.g. font family, text shadow). */
 function FontRadioControl({
   type,
   label,
@@ -224,11 +223,12 @@ function FontRadioControl({
   update,
 }: FontControlProps & {
   type: FontSettingType;
-  label: string;
+  label: TranslatableLabel;
   // readonly, because the option lists are declared `as const`.
   values: Record<string, string> | readonly string[];
 }) {
-  const hint = useDefaultLayoutWord(label);
+  const [open, setOpen] = useState(false);
+  const hint = t(label);
   const options = isLabelList(values)
     ? values.map((entry) => ({ label: entry, value: entry.toLowerCase() }))
     : Object.entries(values).map(([entryLabel, value]) => ({ label: entryLabel, value }));
@@ -236,16 +236,19 @@ function FontRadioControl({
   const currentLabel = options.find((option) => option.value === current)?.label ?? current;
 
   return (
-    <Menu.Root className="vds-menu">
-      <DefaultMenuButton label={hint} hint={currentLabel} />
-      <Menu.Items className="vds-menu-items vds-quick-submenu">
-        <DefaultMenuRadioGroup
+    <>
+      <button className="vds-menu-item" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+        <div className="vds-menu-item-label">{hint}</div>
+        <div className="vds-menu-item-hint">{currentLabel}</div>
+      </button>
+      {open && (
+        <SettingsRadioGroup
           value={current}
           options={options}
           onChange={(value) => update(type, value)}
         />
-      </Menu.Items>
-    </Menu.Root>
+      )}
+    </>
   );
 }
 
@@ -255,17 +258,19 @@ function FontColorControl({
   label,
   settings,
   update,
-}: FontControlProps & { type: FontSettingType; label: string }) {
-  const translated = useDefaultLayoutWord(label);
+}: FontControlProps & { type: FontSettingType; label: TranslatableLabel }) {
+  const translated = t(label);
   return (
-    <DefaultMenuItem label={translated}>
+    <div className="vds-menu-item" role="menuitem">
+      <div className="vds-menu-item-label">{translated}</div>
       <input
-        className="vds-color-picker"
+        className="vds-color-picker glass-color-picker"
         type="color"
         value={settings[type]}
+        aria-label={translated}
         onChange={(event) => update(type, event.target.value)}
       />
-    </DefaultMenuItem>
+    </div>
   );
 }
 
@@ -276,54 +281,34 @@ function FontSliderControl({
   min,
   max,
   step,
-  UpIcon,
-  DownIcon,
   settings,
   update,
 }: FontControlProps & {
   type: FontSettingType;
-  label: string;
+  label: TranslatableLabel;
   min: number;
   max: number;
   step: number;
-  // The exact type DefaultMenuSliderItem expects; the call sites pass
-  // icons.Menu.FontSizeUp and friends, which are declared as DefaultLayoutIcon.
-  UpIcon?: DefaultLayoutIcon;
-  DownIcon?: DefaultLayoutIcon;
 }) {
-  const translated = useDefaultLayoutWord(label);
+  const translated = t(label);
   const value = settings[type];
 
   return (
-    <DefaultMenuSliderItem
+    <SettingsSliderRow
       label={translated}
-      value={value}
-      UpIcon={UpIcon}
-      DownIcon={DownIcon}
-      isMin={value === `${min}%`}
-      isMax={value === `${max}%`}
-    >
-      <Slider.Root
-        className="vds-slider"
-        min={min}
-        max={max}
-        step={step}
-        keyStep={step}
-        value={parseInt(value, 10)}
-        aria-label={translated}
-        onValueChange={(newValue) => update(type, `${newValue}%`)}
-        onDragValueChange={(newValue) => update(type, `${newValue}%`)}
-      >
-        <DefaultSliderParts />
-        <DefaultSliderSteps />
-      </Slider.Root>
-    </DefaultMenuSliderItem>
+      value={parseInt(value, 10)}
+      min={min}
+      max={max}
+      step={step}
+      display={value}
+      onChange={(newValue) => update(type, `${newValue}%`)}
+    />
   );
 }
 
 /** Reset button — restores every font setting to its default. */
 function FontResetItem({ reset }: { reset: () => void }) {
-  const label = useDefaultLayoutWord('Reset');
+  const label = t('Reset');
   return (
     <button className="vds-menu-item" role="menuitem" onClick={reset}>
       <span className="vds-menu-item-label">{label}</span>
@@ -337,22 +322,21 @@ function FontResetItem({ reset }: { reset: () => void }) {
  */
 export function CaptionStylesMenu() {
   const hasCaptions = useMediaState('hasCaptions');
-  const { icons } = useDefaultLayoutContext();
   const { settings, update, reset } = useFontSettings();
 
   if (!hasCaptions) return null;
 
-  const label = useDefaultLayoutWord('Caption Styles');
-  const fontLabel = useDefaultLayoutWord('Font');
-  const textLabel = useDefaultLayoutWord('Text');
-  const textBgLabel = useDefaultLayoutWord('Text Background');
-  const displayBgLabel = useDefaultLayoutWord('Display Background');
+  const label = t('Caption Styles');
+  const fontLabel = t('Font');
+  const textLabel = t('Text');
+  const textBgLabel = t('Text Background');
+  const displayBgLabel = t('Display Background');
 
   return (
-    <Menu.Root className="vds-menu">
-      <DefaultMenuButton label={label} Icon={SubtitlesIcon} />
-      <Menu.Items className="vds-menu-items vds-font-style-items vds-quick-submenu">
-        <DefaultMenuSection label={fontLabel}>
+    <>
+      <SubmenuTrigger id="caption-styles" label={label} Icon={SubtitlesIcon} />
+      <SidePanel id="caption-styles">
+        <SettingsSection label={fontLabel}>
           <FontRadioControl
             type="fontFamily"
             label="Family"
@@ -364,13 +348,11 @@ export function CaptionStylesMenu() {
             type="fontSize"
             label="Size"
             {...FONT_SIZE_OPTION}
-            UpIcon={icons.Menu.FontSizeUp}
-            DownIcon={icons.Menu.FontSizeDown}
             settings={settings}
             update={update}
           />
-        </DefaultMenuSection>
-        <DefaultMenuSection label={textLabel}>
+        </SettingsSection>
+        <SettingsSection label={textLabel}>
           <FontColorControl type="textColor" label="Color" settings={settings} update={update} />
           <FontRadioControl
             type="textShadow"
@@ -383,40 +365,34 @@ export function CaptionStylesMenu() {
             type="textOpacity"
             label="Opacity"
             {...FONT_OPACITY_OPTION}
-            UpIcon={icons.Menu.OpacityUp}
-            DownIcon={icons.Menu.OpacityDown}
             settings={settings}
             update={update}
           />
-        </DefaultMenuSection>
-        <DefaultMenuSection label={textBgLabel}>
+        </SettingsSection>
+        <SettingsSection label={textBgLabel}>
           <FontColorControl type="textBg" label="Color" settings={settings} update={update} />
           <FontSliderControl
             type="textBgOpacity"
             label="Opacity"
             {...FONT_OPACITY_OPTION}
-            UpIcon={icons.Menu.OpacityUp}
-            DownIcon={icons.Menu.OpacityDown}
             settings={settings}
             update={update}
           />
-        </DefaultMenuSection>
-        <DefaultMenuSection label={displayBgLabel}>
+        </SettingsSection>
+        <SettingsSection label={displayBgLabel}>
           <FontColorControl type="displayBg" label="Color" settings={settings} update={update} />
           <FontSliderControl
             type="displayBgOpacity"
             label="Opacity"
             {...FONT_OPACITY_OPTION}
-            UpIcon={icons.Menu.OpacityUp}
-            DownIcon={icons.Menu.OpacityDown}
             settings={settings}
             update={update}
           />
-        </DefaultMenuSection>
-        <DefaultMenuSection>
+        </SettingsSection>
+        <SettingsSection>
           <FontResetItem reset={reset} />
-        </DefaultMenuSection>
-      </Menu.Items>
-    </Menu.Root>
+        </SettingsSection>
+      </SidePanel>
+    </>
   );
 }

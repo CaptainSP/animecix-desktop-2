@@ -1,4 +1,5 @@
 import { useEffect, useRef, type SyntheticEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { UpscalePreset, ColorFilters, EnhancementStats } from '../hooks/useVideoEnhancement';
 import './EnhancementPanel.css';
 
@@ -28,6 +29,39 @@ const PERF_LABELS: Record<string, { text: string; className: string }> = {
 
 function stopPlayerEvent(event: SyntheticEvent): void {
   event.stopPropagation();
+}
+
+// Set while we synthetically press the gear button (see closeSettingsMenu
+// below): our own outside-press handler must ignore that press, otherwise
+// it would toggle this panel shut again before it ever opens. Synchronous
+// dispatchEvent runs the handler inline, so a plain module flag suffices.
+let suppressOutsideClose = false;
+
+/**
+ * Closes the vidstack settings menu (root + portaled side submenu) when the
+ * enhancement panel is about to open. The menu cannot close itself here:
+ * vidstack's Menu host stops pointerup propagation for presses inside
+ * Menu.Root but outside the menu content (where this toggle lives), so the
+ * window outside-press that normally closes it never fires. A synthetic
+ * gear press reuses the proven toggle path instead of internal APIs; the
+ * root's close event clears the side submenu (see SubmenuProvider), and
+ * the pointerdown also trips its document guard as backup. No-op when the
+ * root menu is already closed.
+ */
+function closeSettingsMenu(anchor: HTMLElement | null): void {
+  const root = anchor?.closest('.glass-settings');
+  const items = root?.querySelector('.glass-menu-items[data-root]');
+  const gear = root?.querySelector('.glass-pill button[aria-haspopup="menu"]');
+  if (!root || !items || !(gear instanceof HTMLElement)) return;
+  if (items.getAttribute('aria-hidden') !== 'false') return;
+  const init = { bubbles: true, cancelable: true, view: window, button: 0 };
+  suppressOutsideClose = true;
+  try {
+    gear.dispatchEvent(new PointerEvent('pointerdown', init));
+    gear.dispatchEvent(new PointerEvent('pointerup', init));
+  } finally {
+    suppressOutsideClose = false;
+  }
 }
 
 function Slider({
@@ -78,12 +112,15 @@ export function EnhancementPanel({
   onPanelToggle,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!panelOpen) return;
 
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
+      if (suppressOutsideClose) return;
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !panelRef.current?.contains(target)) {
         onPanelToggle();
       }
     };
@@ -100,7 +137,9 @@ export function EnhancementPanel({
   useEffect(() => {
     if (!panelOpen) return;
 
-    const panel = menuRef.current?.querySelector<HTMLDivElement>('.ve-panel');
+    // The panel is portaled to Menu.Root (outside the pill), so it cannot
+    // be queried from menuRef anymore — use its own ref.
+    const panel = panelRef.current;
     if (!panel) return;
 
     const fitPanel = () => {
@@ -124,6 +163,13 @@ export function EnhancementPanel({
     };
   }, [panelOpen, isActive, stats]);
 
+  // The panel must render OUTSIDE the pill: an ancestor with
+  // backdrop-filter (the pill) is a backdrop root, and a backdrop root
+  // also clips what descendants can sample — the panel's own blur would
+  // render dead inside it. Menu.Root is positioned, sits outside the pill
+  // and keeps the same pill-relative geometry (see .ve-panel CSS).
+  const portalTarget = panelOpen ? menuRef.current?.closest('.glass-settings') : null;
+
   return (
     <div className="ve-menu" ref={menuRef}>
       <button
@@ -131,6 +177,10 @@ export function EnhancementPanel({
         onPointerDown={stopPlayerEvent}
         onClick={(e) => {
           stopPlayerEvent(e);
+          // Mutual exclusivity: opening this panel closes the settings
+          // menu (root + side submenu), otherwise both pile up at the same
+          // bottom-right anchor.
+          if (!panelOpen) closeSettingsMenu(menuRef.current);
           onPanelToggle();
         }}
         title="Video Kalite Artırma"
@@ -141,11 +191,11 @@ export function EnhancementPanel({
         </svg>
       </button>
 
-      {panelOpen && (
+      {panelOpen && portalTarget && createPortal(
         <div
           className="ve-panel"
-          role="menu"
-          onPointerDown={stopPlayerEvent}
+          ref={panelRef}
+          role="menu"          onPointerDown={stopPlayerEvent}
           onMouseDown={stopPlayerEvent}
           onTouchStart={stopPlayerEvent}
           onClick={stopPlayerEvent}
@@ -235,7 +285,7 @@ export function EnhancementPanel({
             </button>
           </div>
         </div>
-      )}
+      , portalTarget)}
     </div>
   );
 }

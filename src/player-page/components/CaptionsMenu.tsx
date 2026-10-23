@@ -1,9 +1,6 @@
-import { Menu, useCaptionOptions } from '@vidstack/react';
-import {
-  DefaultMenuButton,
-  useDefaultLayoutContext,
-  useDefaultLayoutWord,
-} from '@vidstack/react/player/layouts/default';
+import { useCaptionOptions } from '@vidstack/react';
+import { ClosedCaptionsIcon } from '@vidstack/react/icons';
+import { SettingsRadioGroup, SidePanel, SubmenuTrigger, t } from './GlassMenu';
 
 /**
  * CaptionsMenu -- "Altyazılar" submenu for selecting the active caption track.
@@ -13,29 +10,25 @@ import {
  * hook. Renders "Kapalı" (Off) plus one radio per available caption track.
  */
 export function CaptionsMenu() {
-  const { icons } = useDefaultLayoutContext();
-  const label = useDefaultLayoutWord('Captions');
-  const offText = useDefaultLayoutWord('Off');
+  const label = t('Captions');
+  const offText = t('Off');
   const options = useCaptionOptions({ off: offText });
   const hint = options.selectedTrack?.label ?? offText;
 
   if (options.disabled) return null;
 
   return (
-    <Menu.Root className="vds-menu">
-      <DefaultMenuButton label={label} hint={hint} Icon={icons.Menu.Captions} />
-      <Menu.Items className="vds-menu-items vds-quick-submenu">
+    <>
+      <SubmenuTrigger id="captions" label={label} hint={hint} Icon={ClosedCaptionsIcon} />
+      <SidePanel id="captions">
         {/* WHY RadioGroup: bare Menu.Radio children have no radioControllerContext
             ancestor, so mount throws "Cannot read properties of undefined (reading 'add')". */}
-        <Menu.RadioGroup className="vds-radio-group" role="radiogroup" value={options.selectedValue}>
-          {options.map(({ label: optionLabel, value, select }) => (
-            <Menu.Radio className="vds-radio" value={value} onSelect={select} key={value}>
-              <icons.Menu.RadioCheck className="vds-icon" />
-              <span className="vds-radio-label">{optionLabel}</span>
-            </Menu.Radio>
-          ))}
-        </Menu.RadioGroup>
-      </Menu.Items>
-    </Menu.Root>
+        <SettingsRadioGroup
+          value={options.selectedValue}
+          options={options.map(({ label: optionLabel, value }) => ({ label: optionLabel, value }))}
+          onChange={(value) => options.find((option) => option.value === value)?.select()}
+        />
+      </SidePanel>
+    </>
   );
 }

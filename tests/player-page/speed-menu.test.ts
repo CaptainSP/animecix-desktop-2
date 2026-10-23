@@ -6,19 +6,8 @@ import {
 } from '../../src/player-page/components/SpeedMenu';
 
 describe('PLAYBACK_RATES', () => {
-  it('offers 0.25 steps all the way to 4x', () => {
-    expect(PLAYBACK_RATES[0]).toBe(0.25);
-    expect(PLAYBACK_RATES.at(-1)).toBe(4);
-    expect(PLAYBACK_RATES).toHaveLength(16);
-    for (let i = 1; i < PLAYBACK_RATES.length; i++) {
-      expect(PLAYBACK_RATES[i] - PLAYBACK_RATES[i - 1]).toBeCloseTo(0.25);
-    }
-  });
-
-  it('includes the above-2x speeds an earlier revision dropped', () => {
-    expect(PLAYBACK_RATES).toContain(2.5);
-    expect(PLAYBACK_RATES).toContain(3);
-    expect(PLAYBACK_RATES).toContain(4);
+  it('offers exactly the curated short list', () => {
+    expect(PLAYBACK_RATES).toEqual([0.25, 0.5, 1, 1.25, 1.5, 2, 2.5, 4]);
   });
 });
 

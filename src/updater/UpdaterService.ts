@@ -13,6 +13,20 @@ const RECURRING_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;  // D-13: every 4 hours
 
 type EventListener = (channel: string, payload: unknown) => void;
 
+/**
+ * electron-updater only ships an update path for AppImage on Linux — a
+ * deb/rpm install has nothing to update itself with, so every check just
+ * errors. Report support once so main.ts and the tray menu can stay quiet.
+ * Pure/testable: platform and APPIMAGE are injectable (defaults read the
+ * real process values).
+ */
+export function isAutoUpdateSupported(
+  platform: NodeJS.Platform = process.platform,
+  appImage: string | undefined = process.env.APPIMAGE,
+): boolean {
+  return platform !== 'linux' || !!appImage;
+}
+
 export class UpdaterService {
   private initialCheckTimer: NodeJS.Timeout | null = null;
   private recurringCheckTimer: NodeJS.Timeout | null = null;
@@ -20,6 +34,12 @@ export class UpdaterService {
   private bannerDismissedThisSession = false; // D-16
 
   init(): void {
+    if (!isAutoUpdateSupported()) {
+      // deb/rpm installs: skip scheduling entirely — checkForUpdates would
+      // just log an error every 4 hours. Users update via apt/dnf.
+      log.info('[updater] disabled: auto-update is only supported on AppImage for Linux');
+      return;
+    }
     autoUpdater.logger = log;
     autoUpdater.autoDownload = true;       // D-14: background download, no user approval
     autoUpdater.allowPrerelease = false;   // D-12: stable channel only

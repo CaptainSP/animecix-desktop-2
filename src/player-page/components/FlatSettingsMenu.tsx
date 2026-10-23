@@ -1,105 +1,93 @@
 import { useMediaContext, useMediaState } from '@vidstack/react';
 import { RepeatIcon, SettingsSwitchIcon, VolumeHighIcon } from '@vidstack/react/icons';
-import {
-  DefaultMenuCheckbox,
-  useDefaultLayoutContext,
-  useDefaultLayoutWord,
-} from '@vidstack/react/player/layouts/default';
+import { SettingsCheckbox, t } from './GlassMenu';
 
 /**
- * Flat checkbox items injected at the TOP LEVEL of the settings menu
- * (settingsMenuItemsStart slot). The default layout nests these inside the
- * "Playback" and "Accessibility" submenus; the flat menu exposes them directly.
+ * Flat checkbox items at the TOP LEVEL of the settings menu (same rows as
+ * before: Döngü / Duyurular / Klavye Animasyonları).
  *
- * WHY: DefaultPlaybackMenu / DefaultAccessibilityMenu are hidden via CSS
- * (EmbedPlayer.css) and recreated here as flat items.
+ * Announcements is a controlled row: GlassControls owns the preference (it
+ * mounts <MediaAnnouncer> from it) and passes it down. Loop and keyboard
+ * animations persist via SettingsCheckbox under the same storage keys the
+ * default layout used.
  */
 
-/**
- * Loop toggle — persisted to localStorage under "vds-player::user-loop",
- * mirroring the default DefaultLoopMenuCheckbox behaviour.
- */
 function LoopCheckbox() {
   const { remote } = useMediaContext();
-  const label = useDefaultLayoutWord('Loop');
-
-  const onChange = (checked: boolean, trigger?: Event) => {
-    remote.userPrefersLoopChange(checked, trigger);
-  };
+  const label = t('Loop');
 
   return (
-    <div className="vds-menu-item">
-      <RepeatIcon className="vds-menu-item-icon vds-icon" />
-      <div className="vds-menu-item-label">{label}</div>
-      <DefaultMenuCheckbox label={label} storageKey="vds-player::user-loop" onChange={onChange} />
-    </div>
+    <SettingsCheckbox
+      label={label}
+      Icon={RepeatIcon}
+      storageKey="vds-player::user-loop"
+      onChange={(checked) => remote.userPrefersLoopChange(checked)}
+    />
   );
 }
 
-/**
- * Announcements toggle — announces media events to screen readers.
- * Persisted under "vds-player::announcements" (default: on).
- */
-function AnnouncementsCheckbox() {
-  const { userPrefersAnnouncements } = useDefaultLayoutContext();
-  const label = useDefaultLayoutWord('Announcements');
+interface AnnouncementsCheckboxProps {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+}
 
-  const onChange = (checked: boolean) => {
-    userPrefersAnnouncements.set(checked);
-  };
+function AnnouncementsCheckbox({ enabled, onChange }: AnnouncementsCheckboxProps) {
+  const label = t('Announcements');
 
   return (
-    <div className="vds-menu-item">
+    <div
+      className="vds-menu-item"
+      role="menuitemcheckbox"
+      aria-checked={enabled}
+      onClick={() => onChange(!enabled)}
+    >
       <VolumeHighIcon className="vds-menu-item-icon vds-icon" />
       <div className="vds-menu-item-label">{label}</div>
-      <DefaultMenuCheckbox
-        label={label}
-        defaultChecked
-        storageKey="vds-player::announcements"
-        onChange={onChange}
-      />
+      <button
+        className={`glass-switch${enabled ? ' on' : ''}`}
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange(!enabled);
+        }}
+      >
+        <span className="glass-switch-thumb" />
+      </button>
     </div>
   );
 }
 
-/**
- * Keyboard Animations toggle — visual feedback for keyboard shortcuts.
- * Persisted under "vds-player::keyboard-animations" (default: on).
- * Hidden for non-video view types, mirroring the default layout behaviour.
- */
 function KeyboardAnimationsCheckbox() {
   const viewType = useMediaState('viewType');
-  const { userPrefersKeyboardAnimations, noKeyboardAnimations } = useDefaultLayoutContext();
-  const label = useDefaultLayoutWord('Keyboard Animations');
+  const label = t('Keyboard Animations');
 
-  if (viewType !== 'video' || noKeyboardAnimations) return null;
-
-  const onChange = (checked: boolean) => {
-    userPrefersKeyboardAnimations.set(checked);
-  };
+  if (viewType !== 'video') return null;
 
   return (
-    <div className="vds-menu-item">
-      <SettingsSwitchIcon className="vds-menu-item-icon vds-icon" />
-      <div className="vds-menu-item-label">{label}</div>
-      <DefaultMenuCheckbox
-        label={label}
-        defaultChecked
-        storageKey="vds-player::keyboard-animations"
-        onChange={onChange}
-      />
-    </div>
+    <SettingsCheckbox
+      label={label}
+      Icon={SettingsSwitchIcon}
+      storageKey="vds-player::keyboard-animations"
+      defaultChecked
+      onChange={() => {}}
+    />
   );
 }
 
-/**
- * All flat checkbox items — rendered together in the settings menu start slot.
- */
-export function FlatSettingsMenu() {
+interface FlatSettingsMenuProps {
+  announcements: boolean;
+  onAnnouncementsChange: (enabled: boolean) => void;
+}
+
+/** All flat checkbox items — rendered together at the settings menu top. */
+export function FlatSettingsMenu({ announcements, onAnnouncementsChange }: FlatSettingsMenuProps) {
   return (
     <>
       <LoopCheckbox />
-      <AnnouncementsCheckbox />
+      <AnnouncementsCheckbox enabled={announcements} onChange={onAnnouncementsChange} />
       <KeyboardAnimationsCheckbox />
     </>
   );

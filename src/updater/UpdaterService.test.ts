@@ -36,7 +36,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { UpdaterService } from './UpdaterService.js';
+import { UpdaterService, isAutoUpdateSupported } from './UpdaterService.js';
 import { UPDATER_CHANNELS } from '../types/updater.js';
 
 const INITIAL_DELAY = 30_000;
@@ -48,6 +48,9 @@ describe('UpdaterService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    // Pretend to be an AppImage so init() takes the enabled path even when
+    // the suite itself runs on Linux (CI uses ubuntu-latest).
+    vi.stubEnv('APPIMAGE', '/fake/AnimeciX.AppImage');
     // Reset mock autoUpdater event listeners
     mockAutoUpdater.removeAllListeners();
     mockAutoUpdater.checkForUpdates = vi.fn().mockResolvedValue(undefined);
@@ -61,6 +64,7 @@ describe('UpdaterService', () => {
   afterEach(() => {
     service.dispose();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   // Test 1: init() schedules first check via setTimeout with 30s delay
@@ -158,5 +162,40 @@ describe('UpdaterService', () => {
     // Advance past both the initial 30s and one interval
     await vi.advanceTimersByTimeAsync(INITIAL_DELAY + RECURRING_INTERVAL);
     expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  // Test 8: init() is a no-op on Linux deb/rpm (no AppImage) — electron-updater
+  // has no update path there, so nothing may be scheduled or subscribed.
+  it('init() schedules nothing on Linux without AppImage', async () => {
+    vi.stubEnv('APPIMAGE', '');
+    const realPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    try {
+      const debService = new UpdaterService();
+      debService.init();
+
+      await vi.advanceTimersByTimeAsync(INITIAL_DELAY + RECURRING_INTERVAL);
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled();
+      expect(mockAutoUpdater.listenerCount('update-downloaded')).toBe(0);
+      debService.dispose();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true });
+    }
+  });
+});
+
+describe('isAutoUpdateSupported', () => {
+  it('returns false on Linux without AppImage (deb/rpm)', () => {
+    expect(isAutoUpdateSupported('linux', undefined)).toBe(false);
+    expect(isAutoUpdateSupported('linux', '')).toBe(false);
+  });
+
+  it('returns true on Linux AppImage', () => {
+    expect(isAutoUpdateSupported('linux', '/opt/AnimeciX.AppImage')).toBe(true);
+  });
+
+  it('returns true on Windows and macOS regardless of AppImage', () => {
+    expect(isAutoUpdateSupported('win32', undefined)).toBe(true);
+    expect(isAutoUpdateSupported('darwin', undefined)).toBe(true);
   });
 });

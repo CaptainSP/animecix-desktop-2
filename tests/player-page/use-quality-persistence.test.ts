@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   findBestQualityMatch,
+  findTallestQuality,
   loadSavedQuality,
   saveQuality,
   type QualityLike,
@@ -73,5 +74,19 @@ describe('findBestQualityMatch', () => {
   it('returns null for an empty quality list', () => {
     const saved = { width: 1920, height: 1080, bitrate: 5_000_000 };
     expect(findBestQualityMatch([], saved)).toBeNull();
+  });
+});
+
+describe('findTallestQuality', () => {
+  it('returns the highest quality in the list', () => {
+    expect(findTallestQuality(QUALITIES)).toEqual(QUALITIES[2]);
+  });
+
+  it('is order-independent', () => {
+    expect(findTallestQuality([...QUALITIES].reverse())).toEqual(QUALITIES[2]);
+  });
+
+  it('returns null for an empty quality list', () => {
+    expect(findTallestQuality([])).toBeNull();
   });
 });

@@ -34,24 +34,26 @@
 }
 
 .ve-panel {
-  /* Pinned to the player's right edge (same clamp offset as the settings
-     menu in EmbedPlayer.css). Fixed to the iframe viewport because the
-     toggle's own containing block sits ~100px away from the edge. */
-  position: fixed;
-  right: clamp(12px, 2vw, 24px);
-  /* Bottom edge must sit at the same level as the settings menu (75px from
-     the bottom — measured: the placement engine hugs the controls row). */
-  bottom: 75px;
+  /* Anchored to Menu.Root (.glass-settings, position: relative, box =
+     the pill capsule): right edge flush with the pill, bottom level with
+     the settings menu. `absolute`, NOT `fixed`, because the panel is
+     PORTALED out of the pill (the pill's backdrop-filter would otherwise
+     be its backdrop root and its blur would render dead — see the
+     portal call in EnhancementPanel.tsx); without the pill as containing
+     block, `fixed` would resolve against the viewport. */
+  position: absolute;
+  right: 0;
+  /* Same lift as the settings dock (clears the seek slider). */
+  bottom: 92px;
   z-index: 999998;
   width: min(340px, calc(100vw - 28px));
   max-height: min(580px, calc(100vh - 92px));
   overflow-y: auto;
-  /* Glass look must match the settings menus (EmbedPlayer.css defines the
-     --media-menu-* tokens on .vds-video-layout, so they cascade here). */
-  background: var(--media-menu-bg, rgba(10, 10, 10, 0.62));
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: var(--media-menu-border, 1px solid rgba(255, 255, 255, 0.12));
+  /* Byte-identical to the pills. */
+  background: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: none;
   border-radius: var(--media-menu-border-radius, 12px);
   padding: 12px;
   color: #fff;

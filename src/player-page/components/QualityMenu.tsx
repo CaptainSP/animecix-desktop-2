@@ -1,11 +1,7 @@
-import { Menu, useMediaContext, useMediaState } from '@vidstack/react';
+import { useMediaContext, useMediaState } from '@vidstack/react';
 import { ComputerIcon } from '@vidstack/react/icons';
-import {
-  DefaultMenuButton,
-  DefaultMenuRadioGroup,
-  useDefaultLayoutWord,
-} from '@vidstack/react/player/layouts/default';
-import { saveQuality } from '../hooks/useQualityPersistence';
+import { saveQuality, markManualQualityPick } from '../hooks/useQualityPersistence';
+import { SettingsRadioGroup, SidePanel, SubmenuTrigger, t } from './GlassMenu';
 
 interface QualityLike {
   height?: number;
@@ -72,8 +68,8 @@ export function QualityMenu() {
   const qualities = useMediaState('qualities');
   const quality = useMediaState('quality');
   const autoQuality = useMediaState('autoQuality');
-  const qualityWord = useDefaultLayoutWord('Quality');
-  const autoWord = useDefaultLayoutWord('Auto');
+  const qualityWord = t('Quality');
+  const autoWord = t('Auto');
 
   // If the source has no selectable qualities or quality switching is not
   // supported, hide the entire submenu ("kapalı görünsün").
@@ -86,8 +82,11 @@ export function QualityMenu() {
   const currentLabel = currentValue === 'auto' ? autoWord : `${currentValue}p`;
 
   // The only place the preference is written: a viewer's pick, never an
-  // automatic switch or a revert (see useQualityPersistence).
+  // automatic switch or a revert (see useQualityPersistence). Any pick —
+  // including back to Auto — also shields itself from a restore that is
+  // still polling for a late quality list.
   const onSelect = (value: string) => {
+    markManualQualityPick();
     if (value === 'auto') {
       saveQuality(null);
       remote.requestAutoQuality();
@@ -102,11 +101,11 @@ export function QualityMenu() {
   };
 
   return (
-    <Menu.Root className="vds-menu">
-      <DefaultMenuButton label={qualityWord} hint={currentLabel} Icon={ComputerIcon} />
-      <Menu.Items className="vds-menu-items vds-quick-submenu">
-        <DefaultMenuRadioGroup value={currentValue} options={options} onChange={onSelect} />
-      </Menu.Items>
-    </Menu.Root>
+    <>
+      <SubmenuTrigger id="quality" label={qualityWord} hint={currentLabel} Icon={ComputerIcon} />
+      <SidePanel id="quality" lift={15}>
+        <SettingsRadioGroup value={currentValue} options={options} onChange={onSelect} />
+      </SidePanel>
+    </>
   );
 }

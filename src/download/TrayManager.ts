@@ -28,17 +28,31 @@ export class TrayManager {
 
   createTray(): void {
     if (this.tray) return;
-    const iconPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'tray-icon.png')
-      : path.join(app.getAppPath(), 'assets', 'tray-icon.png');
-    let icon: Electron.NativeImage;
-    try {
-      icon = nativeImage.createFromPath(iconPath);
-      if (icon.isEmpty()) throw new Error('empty');
-    } catch {
-      icon = nativeImage.createEmpty();
+    // assets/tray-icon.png does not exist in the repo — fall back to the app
+    // icon. Packaged builds resolve under resourcesPath, dev under app path.
+    const baseDir = app.isPackaged
+      ? process.resourcesPath
+      : path.join(app.getAppPath(), 'assets');
+    let icon: Electron.NativeImage = nativeImage.createEmpty();
+    for (const fileName of ['tray-icon.png', 'icon.png']) {
+      const candidate = nativeImage.createFromPath(path.join(baseDir, fileName));
+      if (!candidate.isEmpty()) {
+        icon = candidate;
+        break;
+      }
     }
-    this.tray = new Tray(icon);
+    // Dev builds keep icons in assets/; packaged builds flatten extraResource
+    // entries into resourcesPath — the loop above already covers both layouts.
+    try {
+      this.tray = new Tray(icon);
+    } catch (err) {
+      // GNOME Wayland (and other shells) expose no system tray at all —
+      // running trayless beats crashing. Callers check isActive() and keep
+      // the window visible instead of hiding into a nonexistent tray.
+      console.warn('[tray] System tray unavailable, continuing without it:', err);
+      this.tray = null;
+      return;
+    }
     this.tray.setToolTip('AnimeciX - Indirme devam ediyor');
     this.tray.on('double-click', () => this.showWindow());
     this.rebuildMenu();
