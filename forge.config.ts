@@ -30,9 +30,6 @@ const config: ForgeConfig = {
       'assets/player',
       'assets/library',
       'resources/app-update.yml',
-      // AdBlocker filter lists (src/network/ad-blocker.ts resolves
-      // process.resourcesPath/filter-lists with a __dirname fallback).
-      'src/network/filter-lists',
       // Tray icon source: TrayManager reads resourcesPath/tray-icon.png,
       // falling back to resourcesPath/icon.png (assets/tray-icon.png
       // never existed — the app icon is reused instead).

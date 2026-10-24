@@ -143,8 +143,12 @@ if (!gotLock) {
     }).catch(e => console.error('Failed to start player server:', e));
 
     // Phase 2: Network layer — ad blocker + request interception + CDN header rewriter
+    // INTENTIONAL: filter lists are NOT loaded, so the ad blocker blocks nothing.
+    // Packaged builds never shipped the lists (Vite does not copy them), and
+    // turning them on would make EasyPrivacy block GA4 + Plausible — desktop
+    // users would vanish from the admin analytics dashboard. The interception
+    // itself stays: it carries the embed → local player redirect.
     const adBlocker = new AdBlocker();
-    adBlocker.loadFilterLists();
     setupRequestInterception(adBlocker);
     setupHeaderRewriter();
 
