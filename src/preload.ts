@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AnimecixAPI, DownloadProgress, PushNotification } from './types/animecix-api';
 import { PUSH_CHANNELS } from './notifications/push.types';
 import { UPDATER_CHANNELS } from './types/updater.js';
+import { usesNativeFrame } from './window/window-frame';
 import type { UpdateReadyPayload, DownloadProgressPayload, UpdaterApi } from './types/updater.js';
 
 function appendPlayerCacheBust(pathname: string, search: string): string {
@@ -41,6 +42,9 @@ const api: AnimecixAPI = {
 
   // Platform info — synchronous, set at preload time
   platform: process.platform,
+  // True when the OS draws the title bar and caption buttons (Linux), so the
+  // website must not render its own min/max/close next to them.
+  nativeFrame: usesNativeFrame(),
   version: process.env.npm_package_version,
 
   // Network status — synchronous
