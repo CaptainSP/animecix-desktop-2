@@ -84,6 +84,8 @@ export interface AnimecixAPI {
 
   // Platform info — synchronous values set at preload time
   platform: NodeJS.Platform;
+  /** The OS draws the title bar and caption buttons; the site must not add its own. */
+  nativeFrame: boolean;
   version: string | undefined;
   isOnline: () => boolean;
 

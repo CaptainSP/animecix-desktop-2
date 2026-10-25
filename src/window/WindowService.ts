@@ -2,6 +2,7 @@ import { app, BrowserWindow, screen, shell } from 'electron';
 import path from 'node:path';
 import { StorageService } from '../storage/StorageService';
 import type { TrayManager } from '../download/TrayManager';
+import { usesNativeFrame } from './window-frame';
 
 const isMac = process.platform === 'darwin';
 export const LOCAL_DEV_SITE_URL = 'http://localhost:4200';
@@ -109,6 +110,12 @@ export function createWindow(storage: StorageService): BrowserWindow {
     // 999999) was visually covering the buttons. 'hiddenInset' decouples the OS chrome
     // from the website header so the buttons remain visible above content.
     browserWindowOptions.titleBarStyle = 'hiddenInset';
+  } else if (usesNativeFrame()) {
+    // Native decorations — see usesNativeFrame for why. The website reads the
+    // same flag through the preload bridge and drops its own caption buttons.
+    browserWindowOptions.frame = true;
+    browserWindowOptions.titleBarStyle = 'default';
+    browserWindowOptions.titleBarOverlay = undefined;
   } else {
     browserWindowOptions.titleBarStyle = 'hidden';
     browserWindowOptions.titleBarOverlay = {
@@ -222,9 +229,19 @@ export function setupCloseIntercept(
     // GUARD 1 (D-15): downloads-active hide-to-tray takes priority.
     const trayManager = getTrayManager();
     if (trayManager && trayManager.hasActiveDownloads()) {
+      trayManager.createTray();
+      if (!trayManager.isActive()) {
+        // No system tray to restore from (e.g. GNOME Wayland has none) —
+        // hiding would strand the window with no way back, and letting the
+        // close through would quit the app (window-all-closed) and kill the
+        // downloads. Minimize instead: downloads continue, and the taskbar
+        // brings the window back.
+        event.preventDefault();
+        win.minimize();
+        return;
+      }
       event.preventDefault();
       win.hide();
-      trayManager.createTray();
       return;
     }
 
