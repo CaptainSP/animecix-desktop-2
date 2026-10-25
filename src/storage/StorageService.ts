@@ -396,15 +396,17 @@ export class StorageService {
     source: 'download' | 'cache';
     videoPath: string;
     subPaths: string;
+    createdAt: number;
   }[] {
     const rows = this.db
-      .prepare(`SELECT episode_id, source, video_path, sub_paths FROM episode_metadata`)
+      .prepare(`SELECT episode_id, source, video_path, sub_paths, created_at FROM episode_metadata`)
       .all() as Record<string, unknown>[];
     return rows.map((r) => ({
       episodeId: r['episode_id'] as string,
       source: r['source'] as 'download' | 'cache',
       videoPath: (r['video_path'] as string) ?? '',
       subPaths: (r['sub_paths'] as string) ?? '[]',
+      createdAt: (r['created_at'] as number) ?? 0,
     }));
   }
 

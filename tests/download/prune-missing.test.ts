@@ -10,6 +10,7 @@ interface MetaRow {
   source: 'download' | 'cache';
   videoPath: string;
   subPaths: string;
+  createdAt?: number;
 }
 
 function makeDownloadItem(overrides: Partial<DownloadQueueItem> & { id: string; episodeId: string; outputPath: string }): DownloadQueueItem {
@@ -32,7 +33,8 @@ function makeStorage(downloads: DownloadQueueItem[], metas: MetaRow[]) {
   const deleted: string[] = [];
   return {
     getAllDownloads: () => [...downloads],
-    getAllEpisodeMetadata: () => [...metas],
+    getAllEpisodeMetadata: () => metas.map((m) => ({ createdAt: 0, ...m })),
+    getDownloadById: (id: string) => downloads.find((d) => d.id === id) ?? null,
     deleteDownload: (id: string) => {
       deleted.push(`dl:${id}`);
       const idx = downloads.findIndex((d) => d.id === id);
@@ -171,5 +173,36 @@ describe('pruneMissingDownloads', () => {
     const storage = makeStorage(downloads, []);
 
     expect(pruneMissingDownloads(storage, dir)).toBe(2);
+  });
+
+  it('removes old download metadata that has no file and no queue record', () => {
+    const metas: MetaRow[] = [
+      { episodeId: 'ep-11', source: 'download', videoPath: '', subPaths: '[]', createdAt: 0 },
+    ];
+    const storage = makeStorage([], metas);
+
+    expect(pruneMissingDownloads(storage, dir)).toBe(1);
+    expect(storage.deleted).toEqual(['meta:ep-11']);
+  });
+
+  it('keeps file-less metadata while its download is still queued', () => {
+    const downloads: DownloadQueueItem[] = [
+      makeDownloadItem({ id: 'ep-12', episodeId: 'ep-12', outputPath: path.join(dir, 'q.mp4'), status: 'failed' }),
+    ];
+    const metas: MetaRow[] = [
+      { episodeId: 'ep-12', source: 'download', videoPath: '', subPaths: '[]', createdAt: 0 },
+    ];
+    const storage = makeStorage(downloads, metas);
+
+    expect(pruneMissingDownloads(storage, dir)).toBe(0);
+  });
+
+  it('keeps a just-created file-less row (enqueue still in flight)', () => {
+    const metas: MetaRow[] = [
+      { episodeId: 'ep-13', source: 'download', videoPath: '', subPaths: '[]', createdAt: Math.floor(Date.now() / 1000) },
+    ];
+    const storage = makeStorage([], metas);
+
+    expect(pruneMissingDownloads(storage, dir)).toBe(0);
   });
 });

@@ -17,6 +17,16 @@ function sanitizeFilename(name: string): string {
     .slice(0, 200);
 }
 
+function removePartFiles(chunks: { tempPath: string }[]): void {
+  for (const chunk of chunks) {
+    try {
+      fs.rmSync(chunk.tempPath, { force: true });
+    } catch {
+      /* ignore — a still-open handle on Windows; the next attempt truncates it */
+    }
+  }
+}
+
 export class DownloadQueue extends EventEmitter {
   private storage: StorageService;
   private downloadsDir: string;
@@ -56,8 +66,30 @@ export class DownloadQueue extends EventEmitter {
     const safeName = sanitizeFilename(title);
     const outputPath = path.join(this.downloadsDir, safeName + '.mp4');
 
+    // The row id is the episodeId, so a second add used to hit the PRIMARY KEY
+    // and throw: an episode that was ever paused, cancelled mid-flight or failed
+    // could never be downloaded again (batch download showed "hata" forever).
+    const existing = this.storage.getDownloadById(id);
+    if (existing) {
+      if (existing.status === 'completed' && fs.existsSync(existing.outputPath)) {
+        return id;
+      }
+      if (existing.status === 'downloading' || existing.status === 'queued') {
+        return id;
+      }
+      // paused / failed / completed-but-file-gone: start over with the fresh
+      // URL from the caller (the stored one may be an expired signed URL).
+      this.discard(existing);
+    }
+
     // HEAD request to get Content-Length
     const totalBytes = await this.getContentLength(url);
+
+    // 0 means the size is unknown (HEAD failed or no Content-Length); with no
+    // chunks the download used to "complete" instantly as a 0-byte file.
+    if (totalBytes <= 0) {
+      throw new Error('Could not determine file size');
+    }
 
     if (totalBytes > MAX_DOWNLOAD_SIZE) {
       throw new Error(
@@ -72,6 +104,8 @@ export class DownloadQueue extends EventEmitter {
       byteEnd: c.end,
       tempPath: outputPath + '.part' + i,
     }));
+    // Leftovers from an earlier attempt would otherwise be appended to.
+    removePartFiles(chunks);
 
     this.storage.enqueueDownload({
       id,
@@ -89,15 +123,9 @@ export class DownloadQueue extends EventEmitter {
   }
 
   pause(id: string): void {
-    if (this.activeDownloadId === id && this.activeDownloader) {
-      this.activeDownloader.pause();
-      this.storage.updateDownloadStatus(id, 'paused');
-      this.activeDownloader = null;
-      this.activeDownloadId = null;
-    } else {
-      // Queued item — just mark as paused
-      this.storage.updateDownloadStatus(id, 'paused');
-    }
+    this.stopActive(id, 'paused');
+    // Pausing the active item used to stall the whole queue.
+    this.processNext();
   }
 
   resume(id: string): void {
@@ -107,36 +135,48 @@ export class DownloadQueue extends EventEmitter {
 
   cancel(id: string): void {
     const item = this.storage.getDownloadById(id);
+    if (item) {
+      this.discard(item);
+      // The library entry was created at enqueue time; without a finished file
+      // it is an undeletable 0 MB row.
+      if (item.status !== 'completed') {
+        this.storage.deleteEpisodeMetadata(item.episodeId);
+      }
+    }
+    this.processNext();
+  }
 
+  pauseAll(): void {
+    // Mark queued items first so pausing the active one cannot start them.
+    for (const item of this.storage.getAllDownloads()) {
+      if (item.status === 'queued') {
+        this.storage.updateDownloadStatus(item.id, 'paused');
+      }
+    }
+    if (this.activeDownloadId) {
+      this.stopActive(this.activeDownloadId, 'paused');
+    }
+  }
+
+  /** Aborts the item if it is the active download, then records its status. */
+  private stopActive(id: string, status: 'paused'): void {
     if (this.activeDownloadId === id && this.activeDownloader) {
       this.activeDownloader.pause(); // aborts requests
       this.activeDownloader = null;
       this.activeDownloadId = null;
     }
-
-    if (item) {
-      for (const chunk of item.chunks) {
-        try {
-          if (fs.existsSync(chunk.tempPath)) {
-            fs.unlinkSync(chunk.tempPath);
-          }
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-
-    this.storage.deleteDownload(id);
-    this.processNext();
+    this.storage.updateDownloadStatus(id, status);
   }
 
-  pauseAll(): void {
-    const all = this.storage.getAllDownloads();
-    for (const item of all) {
-      if (item.status === 'downloading' || item.status === 'queued') {
-        this.pause(item.id);
-      }
+  /** Stops the item if active and removes its row and part files. */
+  private discard(item: DownloadQueueItem): void {
+    if (this.activeDownloadId === item.id && this.activeDownloader) {
+      this.activeDownloader.pause(); // aborts requests
+      this.activeDownloader = null;
+      this.activeDownloadId = null;
     }
+    removePartFiles(item.chunks);
+    this.storage.deleteDownload(item.id);
   }
 
   cancelAll(): void {
@@ -280,8 +320,14 @@ export class DownloadQueue extends EventEmitter {
       const httpModule = parsed.protocol === 'https:' ? https : http;
 
       const req = httpModule.request(url, { method: 'HEAD' }, (res) => {
+        res.resume();
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          this.getContentLength(res.headers.location).then(resolve).catch(reject);
+          this.getContentLength(new URL(res.headers.location, url).href).then(resolve).catch(reject);
+          return;
+        }
+        // An error page's Content-Length is not the video's size.
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(`HTTP ${res.statusCode} while checking file size`));
           return;
         }
         const len = parseInt(res.headers['content-length'] ?? '0', 10);
