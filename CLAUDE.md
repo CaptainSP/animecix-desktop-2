@@ -145,7 +145,7 @@ src/
 1. **HTTPS-only downloads.** Validate URL scheme before any download operation.
 2. **Never log raw video URLs** or user tokens beyond debug level.
 3. **Path traversal prevention:** Always derive file paths from database lookups (episodeId → storage path), never from user input.
-4. `webSecurity: false` is intentional (required for cross-origin video canvas color extraction). Do not change without understanding the implications.
+4. Keep `webSecurity` ON in the main window — `webSecurity: false` breaks Cloudflare Turnstile (renderer killed, grey widget). Same for the User-Agent: never rewrite it. See OPEN-SOURCE-AUDIT.md §1.
 5. Electron security fuses are enabled — do not disable ASAR integrity or cookie encryption.
 
 ### Testing
