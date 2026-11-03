@@ -7,6 +7,10 @@ export class LibraryManager {
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow;
+    // Back/forward navigation can leave the library without calling hide().
+    mainWindow.webContents.on('did-navigate', (_event, url) => {
+      this.active = url.startsWith('animecix-library://bundle/');
+    });
   }
 
   show(): void {
